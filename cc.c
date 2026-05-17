@@ -13,6 +13,7 @@
 int ptr_size = 4;
 int word_size = 4;
 
+char * outputname;
 FILE * output;
 
 //==== Lexer ====
@@ -64,6 +65,7 @@ void eat_char()
 
 void next()
 {
+    char oldch;
     //Skip whitespace
     while (curch == ' ' || curch == '\r' || curch == '\n' || curch == '\t')
         next_char();
@@ -76,6 +78,20 @@ void next()
             next_char();
 
         //Restart the function (to skip subsequent whitespace, comments and pp)
+        next();
+        return;
+    }
+    else if (curch == '/' && (next_char() == '*' || prev_char('*')))
+    {
+        /* Read C comments */
+        while (!feof(input))
+        {
+            if ((oldch == '*') && (curch == '/'))
+                break;
+            oldch = curch;
+            next_char();
+        }
+        next_char();
         next();
         return;
     }
@@ -512,7 +528,7 @@ void expr(int level)
 {
     int div = 0;
 
-    if (level == 5)
+    if (level == 6)
     {
         unary();
         return;
@@ -520,9 +536,10 @@ void expr(int level)
 
     expr(level + 1);
 
-    while (level == 4 ? see("+") || see("-") || see("*") || see("/") || see("%")
-    : level == 3 ? see("==") || see("!=") || see("<") || see(">") || see("<=") || see(">=")
-    : false)
+    while (   level == 5 ? see("*") || see("/") || see("%")
+            : level == 4 ? see("+") || see("-")
+            : level == 3 ? see("==") || see("!=") || see("<") || see(">") || see("<=") || see(">=")
+            : false)
     {
         if (see("/")) div=1;
         if (see("%")) div=2;
@@ -534,7 +551,7 @@ void expr(int level)
         next();
         expr(level + 1);
 
-        if (level == 4)
+        if (level == 5)
         {
             if (div == 0)
             {
@@ -558,11 +575,19 @@ void expr(int level)
                 "mov eax,edx\n", instr);
             }
         }
+        else if (level == 4)
+        {
+            fprintf(output, "mov ebx, eax\n"
+            "pop eax\n"
+            "%s eax, ebx\n", instr);
+        }
         else
+        {
             fprintf(output, "pop ebx\n"
             "cmp ebx, eax\n"
             "mov eax, 0\n"
             "set%s al\n", instr);
+        }
     }
 
     if (level == 2)
@@ -840,10 +865,10 @@ int main(int argc, char ** argv)
         return 1;
     }
 
-    fn_out = strdup(argv[1]);
-    fn_out[strlen(fn_out)-1] = 's';
+    outputname = strdup(argv[1]);
+    outputname[strlen(outputname)-1] = 's';
 
-    output = fopen(fn_out, "w");
+    output = fopen(outputname, "w");
 
     lex_init(argv[1], 256);
 
