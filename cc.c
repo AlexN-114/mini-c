@@ -39,9 +39,8 @@ char next_char()
     if (curch == '\n')
         curln++;
 
-    
     curch = fgetc(input);
-    printf("%c",curch);
+    printf("%c", curch);
 
     return curch;
 }
@@ -70,26 +69,30 @@ void next()
     while (curch == ' ' || curch == '\r' || curch == '\n' || curch == '\t')
         next_char();
 
-    //Treat preprocessor lines as line comments
+        //Treat preprocessor lines as line comments
     if (curch == '#'
     || (curch == '/' && (next_char() == '/' || prev_char('/'))))
     {
         while (curch != '\n' && !feof(input))
             next_char();
 
-        //Restart the function (to skip subsequent whitespace, comments and pp)
+            //Restart the function (to skip subsequent whitespace, comments and pp)
         next();
         return;
     }
     else if (curch == '/' && (next_char() == '*' || prev_char('*')))
     {
         /* Read C comments */
-        while (!feof(input))
+        int allread = 0;
+        while (!allread && !feof(input))
         {
             if ((oldch == '*') && (curch == '/'))
-                break;
-            oldch = curch;
-            next_char();
+                allread = 1;
+            else
+            {
+                oldch = curch;
+                next_char();
+            }
         }
         next_char();
         next();
@@ -107,7 +110,7 @@ void next()
         while ((isalnum(curch) || curch == '_') && !feof(input))
             eat_char();
 
-        //Integer literal
+            //Integer literal
     }
     else if (isdigit(curch))
     {
@@ -116,7 +119,7 @@ void next()
         while (isdigit(curch) && !feof(input))
             eat_char();
 
-        //String or character literal
+            //String or character literal
     }
     else if (curch == '\'' || curch == '"')
     {
@@ -233,6 +236,8 @@ bool try_match(char * look)
 char ** globals;
 int global_no;
 bool * is_fn;
+int *used_fn;
+int use_fn;
 
 char ** locals;
 int local_no;
@@ -244,6 +249,8 @@ void sym_init(int max)
     globals = malloc(ptr_size * max);
     global_no = 0;
     is_fn = calloc(max, ptr_size);
+    used_fn =malloc(word_size * max);
+    use_fn = 0;
 
     locals = malloc(ptr_size * max);
     local_no = 0;
@@ -261,7 +268,7 @@ void table_end(char ** table, int table_size)
 
 void sym_end()
 {
-//    table_end(globals, global_no);
+    //    table_end(globals, global_no);
     free(globals);
     free(is_fn);
 
@@ -381,8 +388,10 @@ void factor()
         if (see("=") || see("++") || see("--"))
             lvalue = true;
 
-        if (global >= 0)
-            fprintf(output, "%s eax, [_%s]\n", is_fn[global] || lvalue ? "lea" : "mov", globals[global]);
+        if (global >= 0) {
+//            fprintf(output, "%s eax, [_%s]\n", is_fn[global] || lvalue ? "lea" : "mov", globals[global]);
+            used_fn[use_fn++] = global;
+        }
 
         else if (local >= 0)
             fprintf(output, "%s eax, [ebp%+d]\n", lvalue ? "lea" : "mov", offsets[local]);
@@ -432,7 +441,7 @@ void object()
     {
         if (try_match("("))
         {
-            fputs("push eax\n", output);
+//            fputs("push eax\n", output);
 
             int arg_no = 0;
 
@@ -464,8 +473,11 @@ void object()
 
             match(")");
 
-            fprintf(output, "call dword ptr [esp+%d]\n", arg_no * word_size);
-            fprintf(output, "add esp, %d\n", (arg_no + 1) * word_size);
+            use_fn--;
+//            fprintf(output, "call dword ptr [esp+%d]; _%s\n", arg_no * word_size,globals[used_fn[use_fn]]);
+//            fprintf(output, "add esp, %d\n", (arg_no + 1) * word_size);
+            fprintf(output, "call _%s\n",globals[used_fn[use_fn]]);
+            fprintf(output, "add esp, %d\n", (arg_no) * word_size);
 
         }
         else if (try_match("["))
@@ -536,13 +548,14 @@ void expr(int level)
 
     expr(level + 1);
 
-    while (   level == 5 ? see("*") || see("/") || see("%")
-            : level == 4 ? see("+") || see("-")
-            : level == 3 ? see("==") || see("!=") || see("<") || see(">") || see("<=") || see(">=")
-            : false)
+    while (level == 5 ? see("*") || see("/") || see("%")
+    : level == 4 ? see("+") || see("-")
+    : level == 3 ? see("==") || see("!=") || see("<") || see(">") || see("<=") || see(">=")
+    : false)
     {
-        if (see("/")) div=1;
-        if (see("%")) div=2;
+        if (see("/")) div = 1;
+        if (see("%")) div = 2;
+
         fputs("push eax\n", output);
 
         char * instr = see("+") ? "add" : see("-") ? "sub" : see("*") ? "imul" : see("/") ? "idiv" : see("%") ? "idiv" :
@@ -565,7 +578,7 @@ void expr(int level)
                 "pop eax\n"
                 "xor edx,edx\n"
                 "%s ebx\n", instr);
-            } 
+            }
             else
             {
                 fprintf(output, "mov ebx, eax\n"
@@ -866,7 +879,7 @@ int main(int argc, char ** argv)
     }
 
     outputname = strdup(argv[1]);
-    outputname[strlen(outputname)-1] = 's';
+    outputname[strlen(outputname) - 1] = 's';
 
     output = fopen(outputname, "w");
 
