@@ -40,7 +40,7 @@ char next_char()
 
     
     curch = fgetc(input);
-    putch(curch);
+    printf("%c",curch);
 
     return curch;
 }
@@ -49,6 +49,7 @@ bool prev_char(char before)
 {
     ungetc(curch, input);
     curch = before;
+    printf("\b \b");
 
     return false;
 }
@@ -520,7 +521,7 @@ void expr(int level)
     expr(level + 1);
 
     while (level == 4 ? see("+") || see("-") || see("*") || see("/") || see("%")
-    : level == 3 ? see("==") || see("!=") || see("<") || see(">=")
+    : level == 3 ? see("==") || see("!=") || see("<") || see(">") || see("<=") || see(">=")
     : false)
     {
         if (see("/")) div=1;
@@ -528,7 +529,7 @@ void expr(int level)
         fputs("push eax\n", output);
 
         char * instr = see("+") ? "add" : see("-") ? "sub" : see("*") ? "imul" : see("/") ? "idiv" : see("%") ? "idiv" :
-        see("==") ? "e" : see("!=") ? "ne" : see("<") ? "l" : "ge";
+        see("==") ? "e" : see("!=") ? "ne" : see("<") ? "l" : see(">") ? "g" : see("<=") ? "le" : "ge";
 
         next();
         expr(level + 1);
