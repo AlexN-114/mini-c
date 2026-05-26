@@ -1,7 +1,7 @@
- //---------------
+ //-----------------------------
 // mini-c, by Sam Nipps (c) 2015
 // MIT license
-//---------------
+//------------------------------
 
 #include <stdlib.h>
 #include <string.h>
@@ -652,6 +652,65 @@ void expr(int level)
 
 void line();
 
+void case_default()
+{
+    int false_branch = new_label();
+
+    if (see("case"))
+    {
+        next();
+        expr(0);
+        fprintf(output, "cmp eax, ebx\n"
+        "jne _%08d\n", false_branch);
+        match(":");
+        
+        do
+        {
+            line();
+        } while (!see("case") && !see("default") && !see("}"));
+    }
+    else if (see("default"))
+    {
+        fprintf(output, "#default expr\n");
+        next();
+        match(":");
+
+        do
+        {
+            line();
+        } while (!see("case") && !see("default") && !see("}"));
+    }
+    fprintf(output, "\t_%08d:\n", false_branch);
+}
+
+void switch_label()
+{
+    int break_to = new_label();
+    int break_to_prev = break_to_inner;
+    break_to_inner = break_to;
+
+    match("switch");
+    match("(");
+    expr(0);
+    fprintf(output, "#switch expr\nmov ebx, eax\n");
+    match(")");
+    match("{");
+
+    do
+    {
+        case_default();
+//        match(";");
+//        next();
+    }
+    while ((see("case") || see("default")) && !feof(input));
+
+    match("}");
+
+    fprintf(output, "\t_%08d:\n", break_to);
+
+    break_to_inner = break_to_prev;
+}
+
 void branch(bool isexpr)
 {
     int false_branch = new_label();
@@ -669,7 +728,6 @@ void branch(bool isexpr)
     {
         match(":");
         expr(1);
-
     }
     else if (try_match("else"))
         line();
@@ -690,14 +748,14 @@ void loop_break()
 {
     match("break");
     fprintf(output, "jmp _%08d\n", break_to_inner);
-    match(";");
+    //match(";");
 }
 
 void loop_continue()
 {
     match("continue");
     fprintf(output, "jmp _%08d\n", loop_to_inner);
-    match(";");
+    //match(";");
 }
 
 void while_loop()
@@ -734,8 +792,8 @@ void while_loop()
     fprintf(output, "jmp _%08d\n", loop_to);
     fprintf(output, "\t_%08d:\n", break_to);
 
-    int loop_to_inner = loop_to_prev;
-    int break_to_inner = break_to_prev;
+    loop_to_inner = loop_to_prev;
+    break_to_inner = break_to_prev;
 
 }
 
@@ -759,6 +817,9 @@ void line()
 
     else if (see("continue"))
         loop_continue();
+
+    else if (see("switch"))
+        switch_label();
 
     else if (see("int") || see("char") || see("bool"))
         decl(decl_local);
