@@ -16,11 +16,10 @@ int word_size = 4;
 char * outputname;
 FILE * output;
 
-//==== Lexer ====
-
 char * inputname;
 FILE * input;
 
+//==== Lexer ====
 int curln;
 char curch;
 
@@ -192,6 +191,8 @@ void lex_end()
 //==== Parser helper functions ====
 
 int errors;
+int loop_to_inner = 0;
+int break_to_inner = 0;
 
 void error(char * format)
 {
@@ -685,10 +686,26 @@ void if_branch()
     branch(false);
 }
 
+void loop_break()
+{
+    match("break");
+    fprintf(output, "jmp _%08d\n", break_to_inner);
+    match(";");
+}
+
+void loop_continue()
+{
+    match("break");
+    fprintf(output, "jmp _%08d\n", loop_to_inner);
+    match(";");
+}
+
 void while_loop()
 {
     int loop_to = new_label();
     int break_to = new_label();
+    int loop_to_prev = loop_to_inner;
+    int break_to_prev = break_to_inner;
 
     fprintf(output, "\t_%08d:\n", loop_to);
 
@@ -713,6 +730,10 @@ void while_loop()
 
     fprintf(output, "jmp _%08d\n", loop_to);
     fprintf(output, "\t_%08d:\n", break_to);
+
+    int loop_to_inner = loop_to_prev;
+    int break_to_inner = break_to_prev;
+
 }
 
 void decl(int kind);
@@ -729,6 +750,12 @@ void line()
 
     else if (see("while") || see("do"))
         while_loop();
+
+    else if (see("break"))
+        loop_break();
+
+    else if (see("continue"))
+        loop_continue();
 
     else if (see("int") || see("char") || see("bool"))
         decl(decl_local);
