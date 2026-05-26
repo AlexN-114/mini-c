@@ -22,6 +22,8 @@ FILE * input;
 //==== Lexer ====
 int curln;
 char curch;
+char *line_cache;
+char *line_pointer;
 
 char * buffer;
 int buflength;
@@ -38,15 +40,34 @@ void println()
     printf("%5d: ", curln);
 }
 
+void read_line()
+{
+    line_pointer = line_cache;
+    do
+    {
+        if (feof(input)) break;
+        *line_pointer = fgetc(input);
+    } while ((*line_pointer++ != '\n') && !(feof(input)));
+
+//    if (*(line_pointer-1) != '\n') 
+    if (feof(input))
+        *(line_pointer-1)='\n';
+    *line_pointer = 0;
+    fprintf(output, "# %s\n", line_cache);
+    line_pointer = line_cache;
+}
+
 char next_char()
 {
     if (curch == '\n')
     {
         curln++;
         println();
+        read_line();
     }
 
-    curch = fgetc(input);
+    curch = *line_pointer;
+    line_pointer++;
     printf("%c", curch);
 
     return curch;
@@ -54,7 +75,8 @@ char next_char()
 
 bool prev_char(char before)
 {
-    ungetc(curch, input);
+    //ungetc(curch, input);
+    line_pointer--;
     curch = before;
     printf("\b \b");
 
@@ -119,6 +141,23 @@ void next()
 
             //Integer literal
     }
+    else if (curch == '0')
+    {
+        token = token_int;
+        eat_char();
+        if (curch=='x' || curch=='X')
+        {
+            while ((((curch>='0')&&(curch<='9')) ||
+                    ((curch>='A')&&(curch>='F')) ||
+                    ((curch>='a')&&(curch>='f'))) && !feof(input))
+                eat_char();
+        }
+        else
+        {
+            while (isdigit(curch) && !feof(input))
+                eat_char();
+        }
+    }
     else if (isdigit(curch))
     {
         token = token_int;
@@ -178,8 +217,7 @@ void lex_init(char * filename, int maxlen)
     println();
 
     buffer = malloc(maxlen);
-    next_char();
-    next();
+    line_cache = malloc(maxlen);
 }
 
 void lex_end()
@@ -403,7 +441,7 @@ void factor()
         {
             if (!is_fn[global])
             {
-//                fprintf(output, "%s eax, [_%s]\n", is_fn[global] || lvalue ? "lea" : "mov", globals[global]);
+//              fprintf(output, "%s eax, [_%s]\n", is_fn[global] || lvalue ? "lea" : "mov", globals[global]);
                 fprintf(output, "%s eax, [_%s]\n", lvalue ? "lea" : "mov", globals[global]);
             }
             else
@@ -750,7 +788,8 @@ void switch_label()
     match("switch");
     match("(");
     expr(0);
-    fprintf(output, "#switch expr\nmov ebx, eax\n");
+    fprintf(output, //"#switch expr\n"
+                    "mov ebx, eax\n");
     match(")");
     match("{");
 
@@ -1002,7 +1041,7 @@ void decl(int kind)
         if (try_match("="))
         {
             if (token == token_int)
-                fprintf(output, "_%s: .quad %d\n", ident, atoi(buffer));
+                fprintf(output, "_%s: .quad %s\n", ident, buffer);
 
             else
                 error("expected a constant expression, found '%s'\n");
@@ -1029,7 +1068,9 @@ void decl(int kind)
 
 void program()
 {
-    fputs(".intel_syntax noprefix\n", output);
+    read_line();
+    next_char();
+    next();
 
     errors = 0;
 
@@ -1067,6 +1108,10 @@ int main(int argc, char ** argv)
         new_fn(std_fns);
         std_fns = std_fns + strlen(std_fns) + 1;
     }
+
+    fprintf(output, "# mini-c v0.8.0\n"
+                    "# %s\n"
+                    ".intel_syntax noprefix\n\n", inputname);
 
     program();
 
