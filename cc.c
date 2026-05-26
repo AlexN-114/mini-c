@@ -195,7 +195,7 @@ int errors;
 
 void error(char * format)
 {
-    printf("%s:%d: error: ", inputname, curln);
+    printf("\n%s:%d: error: ", inputname, curln);
     //Accepting an untrusted format string? Naughty!
     printf(format, buffer);
     errors++;
@@ -398,9 +398,17 @@ void factor()
         if (see("=") || see("++") || see("--"))
             lvalue = true;
 
-        if (global >= 0) {
-//            fprintf(output, "%s eax, [_%s]\n", is_fn[global] || lvalue ? "lea" : "mov", globals[global]);
-            used_fn[use_fn++] = global;
+        if (global >= 0) 
+        {
+            if (!is_fn[global])
+            {
+//                fprintf(output, "%s eax, [_%s]\n", is_fn[global] || lvalue ? "lea" : "mov", globals[global]);
+                fprintf(output, "%s eax, [_%s]\n", lvalue ? "lea" : "mov", globals[global]);
+            }
+            else
+            {
+                used_fn[use_fn++] = global;
+            }
         }
 
         else if (local >= 0)
