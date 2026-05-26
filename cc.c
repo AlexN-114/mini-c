@@ -695,7 +695,7 @@ void loop_break()
 
 void loop_continue()
 {
-    match("break");
+    match("continue");
     fprintf(output, "jmp _%08d\n", loop_to_inner);
     match(";");
 }
@@ -706,6 +706,9 @@ void while_loop()
     int break_to = new_label();
     int loop_to_prev = loop_to_inner;
     int break_to_prev = break_to_inner;
+
+    loop_to_inner = loop_to;
+    break_to_inner = break_to;
 
     fprintf(output, "\t_%08d:\n", loop_to);
 
@@ -766,7 +769,6 @@ void line()
             line();
 
         match("}");
-
     }
     else
     {
@@ -860,7 +862,6 @@ void decl(int kind)
         {
             local = new_local(ident);
             fprintf(output, "sub esp, %d\n", word_size);
-
         }
         else
             (kind == decl_module ? new_global : new_param)(ident);
