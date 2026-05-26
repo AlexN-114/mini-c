@@ -34,10 +34,18 @@ int token_int = 2;
 int token_char = 3;
 int token_str = 4;
 
+void println()
+{
+    printf("%5d: ", curln);
+}
+
 char next_char()
 {
     if (curch == '\n')
+    {
         curln++;
+        println();
+    }
 
     curch = fgetc(input);
     printf("%c", curch);
@@ -168,6 +176,8 @@ void lex_init(char * filename, int maxlen)
 
     //Get the lexer into a usable state for the parser
     curln = 1;
+    println();
+
     buffer = malloc(maxlen);
     next_char();
     next();
