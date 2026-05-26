@@ -1,7 +1,7 @@
- //-----------------------------
-// mini-c, by Sam Nipps (c) 2015
-// MIT license
-//------------------------------
+//-------------------------------//
+// mini-c, by Sam Nipps (c) 2015 //
+// MIT license                   //
+//-------------------------------//
 
 #include <stdlib.h>
 #include <string.h>
@@ -652,6 +652,64 @@ void expr(int level)
 
 void line();
 
+void for_loop()
+{
+    // labels for break and continue
+    int loop_to = new_label();
+    int break_to = new_label();
+    int loop_to_prev = loop_to_inner;
+    int break_to_prev = break_to_inner;
+    int body_to = new_label();
+    int incl_to = new_label();
+
+    loop_to_inner = loop_to;
+    break_to_inner = break_to;
+    
+    // for body intro
+    match("for");
+    match("(");
+    do
+    {
+        expr(0);
+    } while (try_match(","));
+
+    match(";");
+
+    // for body condition
+    fprintf(output, //"# for loop entry\n"
+                    "_%08d:\n", loop_to);
+    expr(0);
+    fprintf(output, "cmp eax, 0\n"
+    "jne _%08d\n"
+    "jmp _%08d\n"
+    //"# for loop incr loop\n"
+    "_%08d:\n", body_to, break_to, incl_to);
+    match(";");
+
+    // for body loop vars
+    do
+    {
+        expr(0);
+    } while (try_match(","));
+
+    match(")");
+
+    fprintf(output, //"# for loop body\n"
+    "jmp _%08d\n"
+    "_%08d:\n", loop_to, body_to);
+
+    line();
+
+    fprintf(output, "#for loop break\njmp _%08d\n"
+    "_%08d:\n", incl_to, break_to);
+
+
+    // restore break and continue
+    loop_to_inner = loop_to_prev;
+    break_to_inner = break_to_prev;
+    return;
+}
+
 void case_default()
 {
     int false_branch = new_label();
@@ -811,6 +869,9 @@ void line()
 
     else if (see("while") || see("do"))
         while_loop();
+
+    else if (see("for"))
+        for_loop();
 
     else if (see("break"))
         loop_break();
