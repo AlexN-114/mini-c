@@ -35,6 +35,7 @@ int token_int = 2;
 int token_char = 3;
 int token_str = 4;
 
+
 void println()
 {
     printf("%5d: ", curln);
@@ -46,13 +47,13 @@ void read_line()
     do
     {
         if (feof(input)) break;
-        *line_pointer = fgetc(input);
-    } while ((*line_pointer++ != '\n') && !(feof(input)));
+        line_pointer[0] = fgetc(input);
+    } while (((line_pointer++)[0] != '\n') && !(feof(input)));
 
 //    if (*(line_pointer-1) != '\n') 
     if (feof(input))
-        *(line_pointer-1)='\n';
-    *line_pointer = 0;
+        (line_pointer-1)[0] = '\n';
+    line_pointer[0] = 0;
     fprintf(output, "# %s\n", line_cache);
     line_pointer = line_cache;
 }
@@ -66,7 +67,7 @@ char next_char()
         read_line();
     }
 
-    curch = *line_pointer;
+    curch = line_pointer[0];
     line_pointer++;
     printf("%c", curch);
 
@@ -231,6 +232,7 @@ void lex_end()
 int errors;
 int loop_to_inner = 0;
 int break_to_inner = 0;
+int next_case_inner = 0;
 
 void error(char * format)
 {
@@ -293,6 +295,11 @@ int local_no;
 int param_no;
 int * offsets;
 
+char ** enum_names;
+int * enum_values;
+int enum_no;
+int enum_count;
+
 void sym_init(int max)
 {
     globals = malloc(ptr_size * max);
@@ -305,6 +312,10 @@ void sym_init(int max)
     local_no = 0;
     param_no = 0;
     offsets = calloc(max, word_size);
+
+    enum_names = malloc(ptr_size * max);
+    enum_values = calloc(max, ptr_size);
+    enum_no = 0;
 }
 
 void table_end(char ** table, int table_size)
@@ -422,7 +433,7 @@ void factor()
 
     if (see("true") || see("false"))
     {
-        fprintf(output, "mov eax, %d\n", see("true") ? 1 : 0);
+        fprintf(output, "\tmov eax, %d\n", see("true") ? 1 : 0);
         next();
 
     }
@@ -430,33 +441,37 @@ void factor()
     {
         int global = sym_lookup(globals, global_no, buffer);
         int local = sym_lookup(locals, local_no, buffer);
+        int enumidx = sym_lookup(enum_names,enum_no, buffer);
 
-        require(global >= 0 || local >= 0, "no symbol '%s' declared\n");
+        require(global >= 0 || local >= 0 || enumidx >= 0, "no symbol '%s' declared\n");
         next();
 
         if (see("=") || see("++") || see("--"))
             lvalue = true;
 
-        if (global >= 0) 
+        if (enumidx >= 0)
+        {
+            fprintf(output, "\tmov eax, %d""\t# %s\n", enum_values[enumidx], enum_names[enumidx]);
+        }
+        else if (global >= 0) 
         {
             if (!is_fn[global])
             {
-//              fprintf(output, "%s eax, [_%s]\n", is_fn[global] || lvalue ? "lea" : "mov", globals[global]);
-                fprintf(output, "%s eax, [_%s]\n", lvalue ? "lea" : "mov", globals[global]);
+//              fprintf(output, "\t%s eax, [_%s]\n", is_fn[global] || lvalue ? "lea" : "mov", globals[global]);
+                fprintf(output, "\t%s eax, [_%s]\n", lvalue ? "lea" : "mov", globals[global]);
             }
             else
             {
                 used_fn[use_fn++] = global;
             }
         }
-
         else if (local >= 0)
-            fprintf(output, "%s eax, [ebp%+d]\n", lvalue ? "lea" : "mov", offsets[local]);
+            fprintf(output, "\t%s eax, [ebp%+d]\n", lvalue ? "lea" : "mov", offsets[local]);
 
     }
     else if (token == token_int || token == token_char)
     {
-        fprintf(output, "mov eax, %s\n", buffer);
+        fprintf(output, "\tmov eax, %s\n", buffer);
         next();
 
     }
@@ -477,7 +492,7 @@ void factor()
         fputs(".byte 0\n"
         ".section .text\n", output);
 
-        fprintf(output, "mov eax, offset _%08d\n", str);
+        fprintf(output, "\tmov eax, offset _%08d\n", str);
 
     }
     else if (try_match("("))
@@ -498,7 +513,7 @@ void object()
     {
         if (try_match("("))
         {
-//            fputs("push eax\n", output);
+//            fputs("\tpush eax\n", output);
 
             int arg_no = 0;
 
@@ -508,7 +523,7 @@ void object()
                 int end_label = new_label();
                 int prev_label = end_label;
 
-                fprintf(output, "jmp _%08d\n", start_label);
+                fprintf(output, "\tjmp _%08d\n", start_label);
 
                 do
                 {
@@ -516,30 +531,30 @@ void object()
 
                     fprintf(output, "_%08d:\n", next_label);
                     expr(0);
-                    fprintf(output, "push eax\n"
-                    "jmp _%08d\n", prev_label);
+                    fprintf(output, "\tpush eax\n"
+                    "\tjmp _%08d\n", prev_label);
                     arg_no++;
 
                     prev_label = next_label;
                 } while (try_match(","));
 
                 fprintf(output, "_%08d:\n", start_label);
-                fprintf(output, "jmp _%08d\n", prev_label);
+                fprintf(output, "\tjmp _%08d\n", prev_label);
                 fprintf(output, "_%08d:\n", end_label);
             }
 
             match(")");
 
             use_fn--;
-//            fprintf(output, "call dword ptr [esp+%d]; _%s\n", arg_no * word_size,globals[used_fn[use_fn]]);
-//            fprintf(output, "add esp, %d\n", (arg_no + 1) * word_size);
-            fprintf(output, "call _%s\n",globals[used_fn[use_fn]]);
-            fprintf(output, "add esp, %d\n", (arg_no) * word_size);
+//            fprintf(output, "\tcall dword ptr [esp+%d]; _%s\n", arg_no * word_size,globals[used_fn[use_fn]]);
+//            fprintf(output, "\tadd esp, %d\n", (arg_no + 1) * word_size);
+            fprintf(output, "\tcall _%s\n",globals[used_fn[use_fn]]);
+            fprintf(output, "\tadd esp, %d\n", (arg_no) * word_size);
 
         }
         else if (try_match("["))
         {
-            fputs("push eax\n", output);
+            fputs("\tpush eax\n", output);
 
             expr(0);
             match("]");
@@ -547,8 +562,8 @@ void object()
             if (see("=") || see("++") || see("--"))
                 lvalue = true;
 
-            fprintf(output, "pop ebx\n"
-            "%s eax, [eax*%d+ebx]\n", lvalue ? "lea" : "mov", word_size);
+            fprintf(output, "\tpop ebx\n"
+            "\t%s eax, [eax*%d+ebx]\n", lvalue ? "lea" : "mov", word_size);
 
         }
         else
@@ -563,15 +578,15 @@ void unary()
         //Recurse to allow chains of unary operations, LIFO order
         unary();
 
-        fputs("cmp eax, 0\n"
-        "mov eax, 0\n"
-        "sete al\n", output);
+        fputs("\tcmp eax, 0\n"
+        "\tmov eax, 0\n"
+        "\tsete al\n", output);
 
     }
     else if (try_match("-"))
     {
         unary();
-        fputs("neg eax\n", output);
+        fputs("\tneg eax\n", output);
 
     }
     else
@@ -581,9 +596,9 @@ void unary()
 
         if (see("++") || see("--"))
         {
-            fprintf(output, "mov ebx, eax\n"
-            "mov eax, [ebx]\n"
-            "%s dword ptr [ebx], 1\n", see("++") ? "add" : "sub");
+            fprintf(output, "\tmov ebx, eax\n"
+            "\tmov eax, [ebx]\n"
+            "\t%s dword ptr [ebx], 1\n", see("++") ? "add" : "sub");
 
             needs_lvalue("assignment operator '%s' requires a modifiable object\n");
             next();
@@ -613,7 +628,7 @@ void expr(int level)
         if (see("/")) div = 1;
         if (see("%")) div = 2;
 
-        fputs("push eax\n", output);
+        fputs("\tpush eax\n", output);
 
         char * instr = see("+") ? "add" : see("-") ? "sub" : see("*") ? "imul" : see("/") ? "idiv" : see("%") ? "idiv" :
         see("==") ? "e" : see("!=") ? "ne" : see("<") ? "l" : see(">") ? "g" : see("<=") ? "le" : "ge";
@@ -625,38 +640,38 @@ void expr(int level)
         {
             if (div == 0)
             {
-                fprintf(output, "mov ebx, eax\n"
-                "pop eax\n"
-                "%s eax, ebx\n", instr);
+                fprintf(output, "\tmov ebx, eax\n"
+                "\tpop eax\n"
+                "\t%s eax, ebx\n", instr);
             }
             else if (div == 1)
             {
-                fprintf(output, "mov ebx, eax\n"
-                "pop eax\n"
-                "xor edx,edx\n"
-                "%s ebx\n", instr);
+                fprintf(output, "\tmov ebx, eax\n"
+                "\tpop eax\n"
+                "\txor edx,edx\n"
+                "\t%s ebx\n", instr);
             }
             else
             {
-                fprintf(output, "mov ebx, eax\n"
-                "pop eax\n"
-                "xor edx,edx\n"
-                "%s ebx\n"
-                "mov eax,edx\n", instr);
+                fprintf(output, "\tmov ebx, eax\n"
+                "\tpop eax\n"
+                "\txor edx,edx\n"
+                "\t%s ebx\n"
+                "\tmov eax,edx\n", instr);
             }
         }
         else if (level == 4)
         {
-            fprintf(output, "mov ebx, eax\n"
-            "pop eax\n"
-            "%s eax, ebx\n", instr);
+            fprintf(output, "\tmov ebx, eax\n"
+            "\tpop eax\n"
+            "\t%s eax, ebx\n", instr);
         }
         else
         {
-            fprintf(output, "pop ebx\n"
-            "cmp ebx, eax\n"
-            "mov eax, 0\n"
-            "set%s al\n", instr);
+            fprintf(output, "\tpop ebx\n"
+            "\tcmp ebx, eax\n"
+            "\tmov eax, 0\n"
+            "\tset%s al\n", instr);
         }
     }
 
@@ -665,12 +680,12 @@ void expr(int level)
         {
             int shortcircuit = new_label();
 
-            fprintf(output, "cmp eax, 0\n"
-            "j%s _%08d\n", see("||") ? "nz" : "z", shortcircuit);
+            fprintf(output, "\tcmp eax, 0\n"
+            "\tj%s _%08d\n", see("||") ? "nz" : "z", shortcircuit);
             next();
             expr(level + 1);
 
-            fprintf(output, "\t_%08d:\n", shortcircuit);
+            fprintf(output, "_%08d:\n", shortcircuit);
         }
 
     if (level == 1 && try_match("?"))
@@ -678,13 +693,13 @@ void expr(int level)
 
     if (level == 0 && try_match("="))
     {
-        fputs("push eax\n", output);
+        fputs("\tpush eax\n", output);
 
         needs_lvalue("assignment requires a modifiable object\n");
         expr(level + 1);
 
-        fputs("pop ebx\n"
-        "mov dword ptr [ebx], eax\n", output);
+        fputs("\tpop ebx\n"
+        "\tmov dword ptr [ebx], eax\n", output);
     }
 }
 
@@ -717,9 +732,9 @@ void for_loop()
     fprintf(output, //"# for loop entry\n"
                     "_%08d:\n", loop_to);
     expr(0);
-    fprintf(output, "cmp eax, 0\n"
-    "jne _%08d\n"
-    "jmp _%08d\n"
+    fprintf(output, "\tcmp eax, 0\n"
+    "\tjne _%08d\n"
+    "\tjmp _%08d\n"
     //"# for loop incr loop\n"
     "_%08d:\n", body_to, break_to, incl_to);
     match(";");
@@ -733,7 +748,7 @@ void for_loop()
     match(")");
 
     fprintf(output, //"# for loop body\n"
-    "jmp _%08d\n"
+    "\tjmp _%08d\n"
     "_%08d:\n", loop_to, body_to);
 
     line();
@@ -751,24 +766,35 @@ void for_loop()
 void case_default()
 {
     int false_branch = new_label();
+    int next_case = new_label();
+    int next_old = next_case_inner;
+    next_case_inner = next_case;
 
     if (see("case"))
     {
         next();
         expr(0);
-        fprintf(output, "cmp eax, ebx\n"
-        "jne _%08d\n", false_branch);
+        fprintf(output, "\tcmp eax, ebx\n"
+        "\tjne _%08d\n", false_branch);
+        if (next_old != 0)
+            fprintf(output,"_%08d:\n", next_old);
         match(":");
         
-        do
+        while (!see("case") && !see("default") && !see("}"))
         {
             line();
-        } while (!see("case") && !see("default") && !see("}"));
+        } 
+        fprintf(output,"\tjmp _%08d\n", next_case);
     }
     else if (see("default"))
     {
         fprintf(output, "#default expr\n");
         next();
+        if (next_old != 0)
+        {
+            fprintf(output,"_%08d:\n", next_old);
+            next_case_inner = 0;
+        }
         match(":");
 
         do
@@ -776,7 +802,7 @@ void case_default()
             line();
         } while (!see("case") && !see("default") && !see("}"));
     }
-    fprintf(output, "\t_%08d:\n", false_branch);
+    fprintf(output, "_%08d:\n", false_branch);
 }
 
 void switch_label()
@@ -789,21 +815,25 @@ void switch_label()
     match("(");
     expr(0);
     fprintf(output, //"#switch expr\n"
-                    "mov ebx, eax\n");
+                    "\tmov ebx, eax\n");
     match(")");
     match("{");
 
     do
     {
         case_default();
-//        match(";");
-//        next();
     }
     while ((see("case") || see("default")) && !feof(input));
 
     match("}");
 
-    fprintf(output, "\t_%08d:\n", break_to);
+    if (next_case_inner != 0)
+    {
+        fprintf(output,"_%08d:\n", next_case_inner);
+        next_case_inner = 0;
+    }
+
+    fprintf(output, "_%08d:\n", break_to);
 
     break_to_inner = break_to_prev;
 }
@@ -813,13 +843,13 @@ void branch(bool isexpr)
     int false_branch = new_label();
     int join = new_label();
 
-    fprintf(output, "cmp eax, 0\n"
-    "je _%08d\n", false_branch);
+    fprintf(output, "\tcmp eax, 0\n"
+    "\tje _%08d\n", false_branch);
 
     isexpr ? expr(1) : line();
 
-    fprintf(output, "jmp _%08d\n", join);
-    fprintf(output, "\t_%08d:\n", false_branch);
+    fprintf(output, "\tjmp _%08d\n", join);
+    fprintf(output, "_%08d:\n", false_branch);
 
     if (isexpr)
     {
@@ -829,7 +859,7 @@ void branch(bool isexpr)
     else if (try_match("else"))
         line();
 
-    fprintf(output, "\t_%08d:\n", join);
+    fprintf(output, "_%08d:\n", join);
 }
 
 void if_branch()
@@ -844,14 +874,14 @@ void if_branch()
 void loop_break()
 {
     match("break");
-    fprintf(output, "jmp _%08d\n", break_to_inner);
+    fprintf(output, "\tjmp _%08d\n", break_to_inner);
     //match(";");
 }
 
 void loop_continue()
 {
     match("continue");
-    fprintf(output, "jmp _%08d\n", loop_to_inner);
+    fprintf(output, "\tjmp _%08d\n", loop_to_inner);
     //match(";");
 }
 
@@ -865,7 +895,7 @@ void while_loop()
     loop_to_inner = loop_to;
     break_to_inner = break_to;
 
-    fprintf(output, "\t_%08d:\n", loop_to);
+    fprintf(output, "_%08d:\n", loop_to);
 
     bool do_while = try_match("do");
 
@@ -877,8 +907,8 @@ void while_loop()
     expr(0);
     match(")");
 
-    fprintf(output, "cmp eax, 0\n"
-    "je _%08d\n", break_to);
+    fprintf(output, "\tcmp eax, 0\n"
+    "\tje _%08d\n", break_to);
 
     if (do_while)
         match(";");
@@ -886,8 +916,8 @@ void while_loop()
     else
         line();
 
-    fprintf(output, "jmp _%08d\n", loop_to);
-    fprintf(output, "\t_%08d:\n", break_to);
+    fprintf(output, "\tjmp _%08d\n", loop_to);
+    fprintf(output, "_%08d:\n", break_to);
 
     loop_to_inner = loop_to_prev;
     break_to_inner = break_to_prev;
@@ -922,7 +952,9 @@ void line()
         switch_label();
 
     else if (see("int") || see("char") || see("bool"))
+    {
         decl(decl_local);
+    }
 
     else if (try_match("{"))
     {
@@ -939,7 +971,7 @@ void line()
             expr(0);
 
         if (ret)
-            fprintf(output, "jmp _%08d\n", return_to);
+            fprintf(output, "\tjmp _%08d\n", return_to);
 
         match(";");
     }
@@ -952,8 +984,8 @@ void function(char * ident)
     fprintf(output, ".globl _%s\n", ident);
     fprintf(output, "_%s:\n", ident);
 
-    fputs("push ebp\n"
-    "mov ebp, esp\n", output);
+    fputs("\tpush ebp\n"
+    "\tmov ebp, esp\n", output);
 
     //Body
 
@@ -963,10 +995,40 @@ void function(char * ident)
 
     //Epilogue
 
-    fprintf(output, "\t_%08d:\n", return_to);
-    fputs("mov esp, ebp\n"
-    "pop ebp\n"
-    "ret\n", output);
+    fprintf(output, "_%08d:\n", return_to);
+    fputs("\tmov esp, ebp\n"
+    "\tpop ebp\n"
+    "\tret\n", output);
+}
+
+void set_enum()
+{
+    int vz = 1;
+    enum_count = 0;
+
+    while (!try_match("{"))
+        next();
+
+    do
+    {
+        enum_names[enum_no] = strdup(buffer);
+        next();
+        if (try_match("="))
+        {
+            if (see("-"))
+            {
+                vz = -1;
+                next();
+            }
+            enum_count = atoi(buffer) * vz;
+            next();
+        }
+        enum_values[enum_no++] = enum_count++;        
+    } while (try_match(","));
+
+    match("}");
+    match(";");
+
 }
 
 void decl(int kind)
@@ -979,6 +1041,12 @@ void decl(int kind)
     bool fn = false;
     bool fn_impl = false;
     int local;
+
+    if (see("enum"))
+    {
+        set_enum();
+        return;
+    }
 
     next();
 
@@ -1022,7 +1090,7 @@ void decl(int kind)
         if (kind == decl_local)
         {
             local = new_local(ident);
-            fprintf(output, "sub esp, %d\n", word_size);
+            fprintf(output, "\tsub esp, %d\n", word_size);
         }
         else
             (kind == decl_module ? new_global : new_param)(ident);
@@ -1059,7 +1127,7 @@ void decl(int kind)
     else if (try_match("="))
     {
         expr(0);
-        fprintf(output, "mov dword ptr [ebp%+d], eax\n", offsets[local]);
+        fprintf(output, "\tmov dword ptr [ebp%+d], eax\n", offsets[local]);
     }
 
     if (!fn_impl && kind != decl_param)
@@ -1109,7 +1177,7 @@ int main(int argc, char ** argv)
         std_fns = std_fns + strlen(std_fns) + 1;
     }
 
-    fprintf(output, "# mini-c v0.8.0\n"
+    fprintf(output, "# mini-c v0.9.0\n"
                     "# %s\n"
                     ".intel_syntax noprefix\n\n", inputname);
 
