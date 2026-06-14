@@ -621,7 +621,7 @@ void expr(int level)
     expr(level + 1);
 
     while (level == 5 ? see("*") || see("/") || see("%")
-    : level == 4 ? see("+") || see("-")
+    : level == 4 ? see("+") || see("-") || see("|") || see("&")
     : level == 3 ? see("==") || see("!=") || see("<") || see(">") || see("<=") || see(">=")
     : false)
     {
@@ -630,7 +630,7 @@ void expr(int level)
 
         fputs("\tpush eax\n", output);
 
-        char * instr = see("+") ? "add" : see("-") ? "sub" : see("*") ? "imul" : see("/") ? "idiv" : see("%") ? "idiv" :
+        char * instr = see("+") ? "add" : see("-") ? "sub" : see("|") ? "or" : see("&") ? "and" : see("*") ? "imul" : see("/") ? "idiv" : see("%") ? "idiv" :
         see("==") ? "e" : see("!=") ? "ne" : see("<") ? "l" : see(">") ? "g" : see("<=") ? "le" : "ge";
 
         next();
@@ -721,17 +721,23 @@ void for_loop()
     // for body intro
     match("for");
     match("(");
-    do
-    {
-        expr(0);
-    } while (try_match(","));
+    if (!see(";"))
+        do
+        {
+            expr(0);
+        } while (try_match(","));
 
     match(";");
 
     // for body condition
     fprintf(output, //"# for loop entry\n"
                     "_%08d:\n", loop_to);
-    expr(0);
+    
+    if(!see(";"))
+        expr(0);
+    else
+        fprintf(output,"\tmov eax, 1\n");
+
     fprintf(output, "\tcmp eax, 0\n"
     "\tjne _%08d\n"
     "\tjmp _%08d\n"
@@ -740,10 +746,11 @@ void for_loop()
     match(";");
 
     // for body loop vars
-    do
-    {
-        expr(0);
-    } while (try_match(","));
+    if (!see(")"))
+        do
+        {
+            expr(0);
+        } while (try_match(","));
 
     match(")");
 
@@ -1177,7 +1184,7 @@ int main(int argc, char ** argv)
         std_fns = std_fns + strlen(std_fns) + 1;
     }
 
-    fprintf(output, "# mini-c v0.9.0\n"
+    fprintf(output, "# mini-c v0.9.1\n"
                     "# %s\n"
                     ".intel_syntax noprefix\n\n", inputname);
 
