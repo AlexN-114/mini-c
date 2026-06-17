@@ -11,7 +11,7 @@ Implementation:
 Language:
 - Local and global variables, parameters.
 - Functions, `if`, `while`, `do``while`, `return`,`break`,`continue`, `switch`, `case`, `default`
-- `=`, `?:` (ternary), `||`, `&&`, `==`, `!=`, `<`, `>`, `<=`, `>=`, `+`, `-`, `*`, `/`, `%`, `++`, `--` (post-ops), `!`, `-` (unary), `[]`, `()`
+- `=`, `?:` (ternary), `||`, `&&`, `|`, `&`, `==`, `!=`, `<`, `>`, `<=`, `>=`, `+`, `-`, `*`, `/`, `%`, `++`, `--` (post-ops), `!`, `-` (unary), `[]`, `()`
 - Integer, character, `true` and `false` literals. String literals, with automatic concatenation.
 - The language it implements is typeless. Everything is a 4 byte signed integer.
 - Pointer indexing works in increments of 4 bytes, pointer arithmetic is byte-by-byte.
