@@ -19,6 +19,10 @@ FILE * output;
 char * inputname;
 FILE * input;
 
+char * old_iname;
+int old_line;
+FILE * old_input = 0;
+
 //==== Lexer ====
 int curln;
 char curch;
@@ -35,6 +39,13 @@ int token_int = 2;
 int token_char = 3;
 int token_str = 4;
 
+// Prototypes
+void error(char * format);
+char next_char();
+void next();
+bool see(char *look);
+void line();
+void decl(int kind);
 
 void println()
 {
@@ -46,7 +57,25 @@ void read_line()
     line_pointer = line_cache;
     do
     {
-        if (feof(input)) break;
+        if (feof(input)) 
+        {
+            if (old_input != 0)
+            {
+                fclose(input);
+                input = old_input;
+                inputname = old_iname;
+                free(old_iname);
+                curln = old_line;
+                old_input = 0;
+                line_pointer = line_cache;
+                (line_pointer+0)[0] = ';';
+                (line_pointer+0)[0] = '\n';
+                (line_pointer+0)[0] = 0;
+                next();
+                return;
+            }
+            break;
+        }
         line_pointer[0] = fgetc(input);
     } while (((line_pointer++)[0] != '\n') && !(feof(input)));
 
@@ -67,7 +96,7 @@ char next_char()
         read_line();
     }
 
-    curch = line_pointer[0];
+    curch = line_pointer[0]&0xFF;
     line_pointer++;
     printf("%c", curch);
 
@@ -99,14 +128,20 @@ void next()
     while (curch == ' ' || curch == '\r' || curch == '\n' || curch == '\t')
         next_char();
 
-        //Treat preprocessor lines as line comments
-    if (curch == '#'
-    || (curch == '/' && (next_char() == '/' || prev_char('/'))))
+    //Treat preprocessor lines as line comments
+    if (curch == '#')
+    {
+        do_preprocess();
+        next_char();
+        next();
+        return;
+    }
+    else if ((curch == '/' && (next_char() == '/' || prev_char('/'))))
     {
         while (curch != '\n' && !feof(input))
             next_char();
 
-            //Restart the function (to skip subsequent whitespace, comments and pp)
+        //Restart the function (to skip subsequent whitespace, comments and pp)
         next();
         return;
     }
@@ -140,7 +175,7 @@ void next()
         while ((isalnum(curch) || curch == '_') && !feof(input))
             eat_char();
 
-            //Integer literal
+    //Integer literal
     }
     else if (curch == '0')
     {
@@ -166,7 +201,7 @@ void next()
         while (isdigit(curch) && !feof(input))
             eat_char();
 
-            //String or character literal
+    //String or character literal
     }
     else if (curch == '\'' || curch == '"')
     {
@@ -183,7 +218,7 @@ void next()
 
         eat_char();
 
-        //Operators which form a new operator when duplicated e.g. '++'
+    //Operators which form a new operator when duplicated e.g. '++'
     }
     else if (curch == '+' || curch == '-' || curch == '=' || curch == '|' || curch == '&')
     {
@@ -192,7 +227,7 @@ void next()
         if (curch == buffer[0])
             eat_char();
 
-            //Operators which may be followed by a '='
+    //Operators which may be followed by a '='
     }
     else if (curch == '!' || curch == '>' || curch == '<')
     {
@@ -703,7 +738,6 @@ void expr(int level)
     }
 }
 
-void line();
 
 void for_loop()
 {
@@ -931,7 +965,6 @@ void while_loop()
 
 }
 
-void decl(int kind);
 
 //See decl() implementation
 int decl_module = 1;
@@ -1152,6 +1185,76 @@ void program()
     while (!feof(input))
         decl(decl_module);
 }
+int do_include()
+{
+    int i;
+    next_char();
+    buflength = 0;
+
+    if (curch == '<')
+    {
+        next_char();
+        for (i=0; curch != '>'; i++)
+        {
+            if (curch == '\n') return;
+            (buffer + i)[0] = curch;
+            next_char();
+        }
+        (buffer+i)[0] = 0;
+        while(curch != '\n') next_char();
+        old_input = input;
+        old_line = curln;
+        old_iname = inputname;
+        input = fopen(buffer,"r");
+        if (input == 0)
+        {
+            input = old_input;
+            buflength = 0;
+            error("Header file not found\n");
+            return;
+        }
+        curln = 0;
+        inputname = strdup(buffer);
+    }
+    else if (curch == '"')
+    {
+        next_char();
+        for (i=0; curch != '"'; i++)
+        {
+            if (curch == '\n') return;
+            (buffer + i)[0] = curch;
+            next_char();
+        }
+        (buffer+i)[0] = 0;
+        while(curch != '\n') next_char();
+        old_input = input;
+        input = fopen(buffer,"r");
+        if (input == 0)
+        {
+            input = old_input;
+            buflength = 0;
+        }
+    }
+    else
+    {
+        error("Syntax error '#include'\n");
+    }
+
+    return;
+}
+
+int do_preprocess()
+{
+    next_char();
+    buflength = 0;
+
+    while (isalpha(curch))
+        eat_char();
+
+    if (see("include"))
+        do_include();
+}
+
 
 int main(int argc, char ** argv)
 {
