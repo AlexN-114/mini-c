@@ -68,7 +68,7 @@ void read_line()
                 curln = old_line;
                 old_input = 0;
                 line_pointer = line_cache;
-                (line_pointer+0)[0] = ';';
+//                (line_pointer+0)[0] = ';';
                 (line_pointer+0)[0] = '\n';
                 (line_pointer+0)[0] = 0;
                 next();
@@ -76,7 +76,10 @@ void read_line()
             }
             break;
         }
-        line_pointer[0] = fgetc(input);
+		else
+        {
+			line_pointer[0] = fgetc(input);
+		}
     } while (((line_pointer++)[0] != '\n') && !(feof(input)));
 
 //    if (*(line_pointer-1) != '\n') 
@@ -1185,7 +1188,7 @@ void program()
     while (!feof(input))
         decl(decl_module);
 }
-int do_include()
+void do_include()
 {
     int i;
     next_char();
