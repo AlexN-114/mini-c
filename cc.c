@@ -41,12 +41,12 @@ enum {_bool = 0x0001, _char = 0x0002, _short = 0x0004, _int = 0x0008, _long = 0x
 
 int token_other = 0;
 int token_ident = 1;
-int token_char  = 2;
+int token_char = 2;
 int token_short = 3;
-int token_int   = 4;
-int token_long  = 5;
-int token_str   = 6;
-int token_ptr   = 7;
+int token_int = 4;
+int token_long = 5;
+int token_str = 6;
+int token_ptr = 7;
 
 // Prototypes
 void error(char * format);
@@ -456,7 +456,7 @@ void sym_end()
     free(enum_names);
     free(enum_values);
 
-    }
+}
 
 void new_global(char * ident)
 {
@@ -624,28 +624,30 @@ void factor()
         {
             if ((flag & getadr) || (locals_type[local] & _array))
             {
-                fprintf(output, 
-                    "\tmov eax, ebp\n"
-                    "\tadd eax, %+d\n", offsets[local]);
+                fprintf(output,
+                "\tmov eax, ebp\n"
+                "\tadd eax, %+d\n", offsets[local]);
             }
             else if (flag & getvalue)
             {
                 if (lvalue)
                 {
-                    fprintf(output, 
-                        "\tmov ebx, ebp\n"
-                        "\tadd ebx, %+d\n"
-                        "\tmov eax, [ebx]\n", offsets[local]);
+                    fprintf(output,
+                    "\tmov ebx, ebp\n"
+                    "\tadd ebx, %+d\n"
+                    "\tmov eax, [ebx]\n", offsets[local]);
                 }
                 else
                 {
-                    fprintf(output, 
-                        "\tmov ebx, ebp\n"
-                        "\tadd ebx, %+d\n"
-                        "\tmov ebx, [ebx]\n"
-                        "\tmov eax, [ebx]\n", offsets[local]);
-                    if (locals_size[local] <= 1) fprintf(output, "\tcbw\n");
-                    if (locals_size[local] <= 2) fprintf(output, "\tcwde\n");
+                    fprintf(output,
+                    "\tmov ebx, ebp\n"
+                    "\tadd ebx, %+d\n"
+                    "\tmov ebx, [ebx]\n"
+                    "\tmov eax, [ebx]\n", offsets[local]);
+                    if (locals_size[local] <= 1)
+                        fprintf(output, "\tcbw\n");
+                    if (locals_size[local] <= 2)
+                        fprintf(output, "\tcwde\n");
                 }
                 used_dref[used_idx] = (used_dref[used_idx] << 1) | _ptr;
             }
@@ -675,8 +677,10 @@ void factor()
                         fprintf(output, "\tlea ebx, [_%s]\n"
                         "\tmov ebx, [ebx]\n"
                         "\tmov eax, [ebx]\n", globals[global]);
-                        if (globals_size[global] <= 1) fprintf(output, "\tcbw\n");
-                        if (globals_size[global] <= 2) fprintf(output, "\tcwde\n");
+                        if (globals_size[global] <= 1)
+                            fprintf(output, "\tcbw\n");
+                        if (globals_size[global] <= 2)
+                            fprintf(output, "\tcwde\n");
                     }
                     used_dref[used_idx] = (used_dref[used_idx] << 1) | _ptr;
                 }
@@ -796,13 +800,15 @@ void object()
 
             _cursize = (x != 0)? ptr_size : _cursize;
 
-            fprintf(output, 
-                "\tpop ebx\n"
-                "\t%s eax, [eax*%d+ebx] # %s\n", lvalue ? "lea" : "mov", _cursize, bjct, rgst);
+            fprintf(output,
+            "\tpop ebx\n"
+            "\t%s eax, [eax*%d+ebx] # %s\n", lvalue ? "lea" : "mov", _cursize, bjct, rgst);
             if (!lvalue)
             {
-                if (_cursize <= 1) fprintf(output, "\tcbw\n");
-                if (_cursize <= 2) fprintf(output, "\tcwde\n");
+                if (_cursize <= 1)
+                    fprintf(output, "\tcbw\n");
+                if (_cursize <= 2)
+                    fprintf(output, "\tcwde\n");
             }
 
         }
@@ -1167,7 +1173,7 @@ int _sizeof()
     }
     else
     {
-        global = sym_lookup(globals, global_no, buffer); 
+        global = sym_lookup(globals, global_no, buffer);
         if (global >= 0)
         {
             size = globals_inst[global] * (((globals_type[global] & _ptr) != 0)? ptr_size : globals_size[global]);
@@ -1272,9 +1278,7 @@ void while_loop()
 }
 
 //See decl() implementation
-int decl_module = 1;
-int decl_local = 2;
-int decl_param = 3;
+enum {decl_module = 1, decl_local, decl_param};
 
 void line()
 {
@@ -1302,7 +1306,7 @@ void line()
     else if (see("asm"))
         assembler();
 
-    else if (see("int") || see("short") || see("char") || see ("long") || see ("bool"))
+    else if (see("int") || see("short") || see("char") || see("long") || see("bool"))
     {
         decl(decl_local);
     }
@@ -1405,177 +1409,183 @@ void decl(int kind)
 
     next();
 
-    int __ptr = 0;
-    while (try_match("*"))
-        __ptr = (__ptr << 1) + _ptr;
-
-    curtype = curtype | __ptr;
-
-    char * ident = strdup(buffer);
-
-    // printf("decl(%d): %08X %s\n\n",__LINE__,curtype,ident); // Debug - Delete
-
-    next();
-
-    //Functions
-    if (try_match("("))
+    do
     {
-        if (kind == decl_module)
+        int __ptr = 0;
+
+        while (try_match("*"))
+            __ptr = (__ptr << 1) + _ptr;
+
+        curtype = curtype | __ptr;
+
+        char * ident = strdup(buffer);
+
+        // printf("decl(%d): %08X %s\n\n",__LINE__,curtype,ident); // Debug - Delete
+
+        next();
+
+        // Functions
+        if (try_match("("))
         {
-            funtype = curtype;
-            funsize = cursize;
-            new_scope();
-        }
-
-        //Params
-        if (waiting_for(")"))
-            do
+            if (kind == decl_module)
             {
-                decl(decl_param);
-            } while (try_match(","));
-
-        match(")");
-
-        curtype = funtype;
-        cursize = funsize;
-
-        new_fn(ident);
-        fn = true;
-
-        //Body
-        if (see("{"))
-        {
-            require(kind == decl_module, "a function implementation is illegal here\n");
-
-            fn_impl = true;
-            function(ident);
-        }
-
-        //Add it to the symbol table
-    }
-    else
-    {
-        if (kind == decl_local)
-        {
-            int stack_bdf = 4;
-            local = new_local(ident);
-            locals_inst[local_no-1] = 1;
-
-            if (see("["))
-            {
-                next();
-                locals_inst[local_no-1] = atoi(buffer);
-                locals_type[local_no-1] = locals_type[local_no-1] | _array;
-                stack_bdf = locals_inst[local_no-1] * cursize;
-                // locals_type[local_no-1] = locals_type[local_no-1] | _ptr;
-                fprintf(output, "\tsub esp, %d\n", stack_bdf);
-                next();
-                match("]");
+                funtype = curtype;
+                funsize = cursize;
+                new_scope();
             }
-            else if (curtype == _long)
+
+            // Params
+            if (waiting_for(")"))
+                do
+                {
+                    decl(decl_param);
+                } while (try_match(","));
+
+            match(")");
+
+            curtype = funtype;
+            cursize = funsize;
+
+            new_fn(ident);
+            fn = true;
+
+            // Body
+            if (see("{"))
             {
-                fprintf(output, "\tsub esp, %d\n", cursize);
+                require(kind == decl_module, "a function implementation is illegal here\n");
+
+                fn_impl = true;
+                function(ident);
             }
-            else
-            {
-                fprintf(output, "\tsub esp, %d\n", word_size);
-            }
-            local_offset = local_offset - stack_bdf;
-            offsets[local_no-1] = local_offset;
+
+            // Add it to the symbol table
         }
         else
-            (kind == decl_module ? new_global : new_param)(ident);
-    }
-
-    //Initialization
-
-    if (see("="))
-    {
-        require(!fn && kind != decl_param,
-        fn ? "cannot initialize a function\n" : "cannot initialize a parameter\n");
-    } 
-
-
-    if (kind == decl_module)
-    {
-        globals_inst[global_no-1] = 1;
-
-        if (!fn)
-            fputs(".section .data\n", output);
-
-        if (try_match("="))
         {
-            if (token == token_int)
-                if (curtype == _long)
-                    fprintf(output, "_%s: .quad %s\n", ident, buffer);
-                else
-                    fprintf(output, "_%s: .long %s\n", ident, buffer);
-
-            else
-                error("expected a constant expression, found '%s'\n");
-
-            next();
-
-            //Static data defaults to zero if no initializer
-        }
-        else if (try_match("["))
-        {
-            if (token == token_int)
+            if (kind == decl_local)
             {
-                globals_inst[global_no-1] = atoi(buffer);
-                globals_type[global_no-1] = globals_type[global_no-1] | _array;
-                // globals_type[global_no-1] = globals_type[global_no-1] | _ptr;
-                if (curtype == _long)
+                int stack_bdf = 4;
+                local = new_local(ident);
+                locals_inst[local_no - 1] = 1;
+
+                if (see("["))
                 {
-                    fprintf(output, 
+                    next();
+                    locals_inst[local_no - 1] = atoi(buffer);
+                    locals_type[local_no - 1] = locals_type[local_no - 1] | _array;
+                    stack_bdf = locals_inst[local_no - 1] * cursize;
+                    // locals_type[local_no-1] = locals_type[local_no-1] | _ptr;
++                    fprintf(output, "\tsub esp, %d\n", stack_bdf);
+                    next();
+                    match("]");
+                }
+                else if (curtype == _long)
+                {
+                    fprintf(output, "\tsub esp, %d\n", cursize);
+                }
+                else
+                {
+                    fprintf(output, "\tsub esp, %d\n", word_size);
+                }
+                local_offset = local_offset - stack_bdf;
+                offsets[local_no - 1] = local_offset;
+            }
+            else
+                (kind == decl_module ? new_global : new_param)(ident);
+        }
+
+        //Initialization
+
+        if (see("="))
+        {
+            require(!fn && kind != decl_param,
+            fn ? "cannot initialize a function\n" : "cannot initialize a parameter\n");
+        }
+
+        if (kind == decl_module)
+        {
+            globals_inst[global_no - 1] = 1;
+
+            if (!fn)
+                fputs(".section .data\n", output);
+
+            if (try_match("="))
+            {
+                if (token == token_int)
+                    if (curtype == _long)
+                        fprintf(output, "_%s: .quad %s\n", ident, buffer);
+                    else
+                        fprintf(output, "_%s: .long %s\n", ident, buffer);
+
+                else
+                    error("expected a constant expression, found '%s'\n");
+
+                next();
+
+                //Static data defaults to zero if no initializer
+            }
+            else if (try_match("["))
+            {
+                if (token == token_int)
+                {
+                    globals_inst[global_no - 1] = atoi(buffer);
+                    globals_type[global_no - 1] = globals_type[global_no - 1] | _array;
+                    // globals_type[global_no-1] = globals_type[global_no-1] | _ptr;
+                    if (curtype == _long)
+                    {
+                        fprintf(output,
                         "_%s: .rept %s\n"
                         ".quad 0\n"
                         ".endr\n", ident, buffer);
-                }
-                else if (curtype == _char)
-                {
-                    fprintf(output, 
+                    }
+                    else if (curtype == _char)
+                    {
+                        fprintf(output,
                         "_%s: .rept %s\n"
                         ".byte 0\n"
                         ".endr\n", ident, buffer);
-                }
-                else if (curtype == _short)
-                {
-                    fprintf(output, 
+                    }
+                    else if (curtype == _short)
+                    {
+                        fprintf(output,
                         "_%s: .rept %s\n"
                         ".word 0\n"
                         ".endr\n", ident, buffer);
-                }
-                else
-                {
-                    fprintf(output, 
+                    }
+                    else
+                    {
+                        fprintf(output,
                         "_%s: .rept %s\n"
                         ".long 0\n"
                         ".endr\n", ident, buffer);
+                    }
                 }
+                else
+                    error("expected a constant expression, found '%s'\n");
+
+                next();
+                match("]");
+
             }
-            else
-                error("expected a constant expression, found '%s'\n");
-                    
-            next();
-            match("]");
+            else if (!fn)
+                if (curtype == _long)
+                    fprintf(output, "_%s: .quad 0\n", ident);
+                else
+                    fprintf(output, "_%s: .long 0\n", ident);
+
+            if (!fn)
+                fputs(".section .text\n", output);
 
         }
-        else if (!fn)
-            if (curtype == _long)
-                fprintf(output, "_%s: .quad 0\n", ident);
-            else
-                fprintf(output, "_%s: .long 0\n", ident);
+        else if (try_match("="))
+        {
+            expr(0);
+            fprintf(output, "\tmov dword ptr [ebp%+d], eax\t# %s\n", offsets[local], locals[local]);
+        }
 
-        if (!fn)
-            fputs(".section .text\n", output);
+        if (kind == decl_param) break;
 
-    }
-    else if (try_match("="))
-    {
-        expr(0);
-        fprintf(output, "\tmov dword ptr [ebp%+d], eax\t# %s\n", offsets[local], locals[local]);
-    }
+    } while (try_match(","));
 
     if (!fn_impl && kind != decl_param)
         match(";");
@@ -1602,8 +1612,10 @@ void do_pragma()
         next();
         match("(");
 
-        if (see("on")) list = 1;
-        if (see("off")) list = 0;
+        if (see("on"))
+            list = 1;
+        if (see("off"))
+            list = 0;
 
         next();
 
@@ -1615,7 +1627,6 @@ void do_pragma()
         }
     }
 }
-
 
 void do_include()
 {
@@ -1703,7 +1714,7 @@ void do_preprocess()
 
 int main(int argc, char ** argv)
 {
-    char *version = "mini-c v0.15.3";
+    char *version = "mini-c v0.16.0";
     char *fn_out;
     if (argc != 2)
     {
@@ -1725,7 +1736,7 @@ int main(int argc, char ** argv)
     //A negative-terminated null-terminated strings string, if you will
     char * std_fns = "malloc\0calloc\0free\0atoi\0fopen\0fclose\0fgetc\0ungetc\0feof\0fputs\0fprintf\0puts\0printf\0"
     "isalpha\0isdigit\0isalnum\0strlen\0strcmp\0strchr\0strcpy\0strdup\0\xFF\xFF\xFF\xFF";
-
+    
     //Remember that mini-c is typeless, so this is both a byte read and a 4 byte read.
     //(char) 0xFF == -1, (int) 0xFFFFFF == -1
     while (std_fns[0] != -1)
@@ -1737,9 +1748,10 @@ int main(int argc, char ** argv)
     bjct = "dword";
     rgst = "eax";
 
-    fprintf(output, "# %s\n"
-    "# file: %s\n"
-    ".intel_syntax noprefix\n\n", version, inputname);
+    fprintf(output, 
+        "# %s\n"
+        "# file: %s\n"
+        ".intel_syntax noprefix\n\n", version, inputname);
 
     program();
 
