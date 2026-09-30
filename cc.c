@@ -33,6 +33,7 @@ char tc = ':';
 char * buffer;
 int buflength;
 int token;
+int flag_getadr;
 
 int token_other = 0;
 int token_ident = 1;
@@ -515,14 +516,21 @@ void factor()
         }
         else if (local >= 0)
         {
-            fprintf(output, "\t%s eax, [ebp%+d]\n", lvalue ? "lea" : "mov", offsets[local]);
+            if (flag_getadr)
+                fprintf(output, "\tmov eax, ebp\n"
+                                "\tadd eax, %+d\n", offsets[local]);
+            else
+                fprintf(output, "\t%s eax, [ebp%+d]\n", lvalue ? "lea" : "mov", offsets[local]);
         }
         else if (global >= 0)
         {
             if (!is_fn[global])
             {
-                //              fprintf(output, "\t%s eax, [_%s]\n", is_fn[global] || lvalue ? "lea" : "mov", globals[global]);
-                fprintf(output, "\t%s eax, [_%s]\n", lvalue ? "lea" : "mov", globals[global]);
+                // fprintf(output, "\t%s eax, [_%s]\n", is_fn[global] || lvalue ? "lea" : "mov", globals[global]);
+                if (flag_getadr)
+                    fprintf(output, "\tlea eax, _%s\n", globals[global]);
+                else
+                    fprintf(output, "\t%s eax, [_%s]\n", lvalue ? "lea" : "mov", globals[global]);
             }
             else
             {
@@ -657,6 +665,12 @@ void unary()
         fputs("\tnot eax\n", output);
 
     }
+    else if (try_match("&"))
+    {
+        flag_getadr = 1;
+        unary();
+        flag_getadr = 0;
+    }
     else
     {
         //This function call compiles itself
@@ -726,31 +740,31 @@ void expr(int level)
             else
             {
                 fprintf(output, "\tmov ebx, eax\n"
-                "\tpop eax\n"
-                "\txor edx,edx\n"
-                "\t%s ebx\n"
-                "\tmov eax,edx\n", instr);
+                                "\tpop eax\n"
+                                "\txor edx,edx\n"
+                                "\t%s ebx\n"
+                                "\tmov eax,edx\n", instr);
             }
         }
         else if (level == 4)
             if (div == 3)
             {
                 fprintf(output, "\tmov ecx, eax\n"
-                "\tpop eax\n"
-                "\t%s eax, cl\n", instr);
+                                "\tpop eax\n"
+                                "\t%s eax, cl\n", instr);
             }
             else
             {
                 fprintf(output, "\tmov ebx, eax\n"
-                "\tpop eax\n"
-                "\t%s eax, ebx\n", instr);
+                                "\tpop eax\n"
+                                "\t%s eax, ebx\n", instr);
             }
         else
         {
             fprintf(output, "\tpop ebx\n"
-            "\tcmp ebx, eax\n"
-            "\tmov eax, 0\n"
-            "\tset%s al\n", instr);
+                            "\tcmp ebx, eax\n"
+                            "\tmov eax, 0\n"
+                            "\tset%s al\n", instr);
         }
     }
 
@@ -927,7 +941,7 @@ void branch(bool isexpr)
     int join = new_label();
 
     fprintf(output, "\tcmp eax, 0\n"
-    "\tje _%08d\n", false_branch);
+                    "\tje _%08d\n", false_branch);
 
     isexpr ? expr(1) : line();
 
@@ -1184,7 +1198,7 @@ void decl(int kind)
 
     if (kind == decl_module)
     {
-        fputs(".section .data\n", output);
+        if (!fn) fputs(".section .data\n", output);
 
         if (try_match("="))
         {
@@ -1201,7 +1215,7 @@ void decl(int kind)
         else if (!fn)
             fprintf(output, "_%s: .quad 0\n", ident);
 
-        fputs(".section .text\n", output);
+        if (!fn) fputs(".section .text\n", output);
 
     }
     else if (try_match("="))
@@ -1337,7 +1351,7 @@ int main(int argc, char ** argv)
         std_fns = std_fns + strlen(std_fns) + 1;
     }
 */
-    fprintf(output, "# mini-c v0.10.3\n"
+    fprintf(output, "# mini-c v0.10.5\n"
     "# %s\n"
     ".intel_syntax noprefix\n\n", inputname);
 
