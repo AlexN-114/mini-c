@@ -34,6 +34,7 @@ char * buffer;
 int buflength;
 int token;
 int flag_getadr;
+int flag_getvalue;
 
 int token_other = 0;
 int token_ident = 1;
@@ -177,7 +178,7 @@ void next()
     token = token_other;
 
     //Identifier or keyword
-    if (isalpha(curch))
+    if (isalpha(curch) || curch == '_')
     {
         token = token_ident;
 
@@ -411,6 +412,12 @@ void new_fn(char * ident)
 
 int new_local(char * ident)
 {
+    char * locBuf = malloc(100);
+    int local = sym_lookup(locals, local_no, ident);
+    sprintf(locBuf, "symbol '%s' aleady declared\n", ident);
+    require(local < 0, locBuf);
+    free(locBuf);
+
     int var_index = local_no - param_no;
 
     locals[local_no] = ident;
@@ -519,6 +526,9 @@ void factor()
             if (flag_getadr)
                 fprintf(output, "\tmov eax, ebp\n"
                                 "\tadd eax, %+d\n", offsets[local]);
+            else if (flag_getvalue)
+                fprintf(output, "\tmov ebx, [ebp%+d]\n"
+                                "\tmov eax, [ebx]\n", offsets[local]);
             else
                 fprintf(output, "\t%s eax, [ebp%+d]\n", lvalue ? "lea" : "mov", offsets[local]);
         }
@@ -529,6 +539,9 @@ void factor()
                 // fprintf(output, "\t%s eax, [_%s]\n", is_fn[global] || lvalue ? "lea" : "mov", globals[global]);
                 if (flag_getadr)
                     fprintf(output, "\tlea eax, _%s\n", globals[global]);
+                if (flag_getvalue)
+                    fprintf(output, "\tlea ebx, [_%s]\n"
+                                    "\tmov eax, [ebx]", globals[global]);
                 else
                     fprintf(output, "\t%s eax, [_%s]\n", lvalue ? "lea" : "mov", globals[global]);
             }
@@ -670,6 +683,12 @@ void unary()
         flag_getadr = 1;
         unary();
         flag_getadr = 0;
+    }
+    else if (try_match("*"))
+    {
+        flag_getvalue = 1;
+        unary();
+        flag_getvalue = 0;
     }
     else
     {
@@ -1351,7 +1370,7 @@ int main(int argc, char ** argv)
         std_fns = std_fns + strlen(std_fns) + 1;
     }
 */
-    fprintf(output, "# mini-c v0.10.5\n"
+    fprintf(output, "# mini-c v0.10.6\n"
     "# %s\n"
     ".intel_syntax noprefix\n\n", inputname);
 
