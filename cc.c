@@ -191,9 +191,10 @@ void next()
         eat_char();
         if (curch == 'x' || curch == 'X')
         {
+            eat_char();
             while ((((curch >= '0') && (curch <= '9')) ||
-            ((curch >= 'A') && (curch >= 'F')) ||
-            ((curch >= 'a') && (curch >= 'f'))) && !feof(input))
+                    ((curch >= 'A') && (curch <= 'F')) ||
+                    ((curch >= 'a') && (curch <= 'f'))) && !feof(input))
                 eat_char();
         }
         else
@@ -226,7 +227,7 @@ void next()
 
         eat_char();
 
-        //Operators which form a new operator when duplicated e.g. '++'
+    //Operators which form a new operator when duplicated e.g. '++'
     }
     else if (curch == '+' || curch == '-' || curch == '=' || curch == '|' || curch == '&')
     {
@@ -235,13 +236,29 @@ void next()
         if (curch == buffer[0])
             eat_char();
 
-            //Operators which may be followed by a '='
+    //Operators which may be followed by a '='
     }
-    else if (curch == '!' || curch == '>' || curch == '<')
+    else if (curch == '!')
     {
         eat_char();
 
         if (curch == '=')
+            eat_char();
+
+    }
+    else if (curch == '>')
+    {
+        eat_char();
+
+        if ((curch == '=') || (curch == '>'))
+            eat_char();
+
+    }
+    else if (curch == '<')
+    {
+        eat_char();
+
+       if ((curch == '=') || (curch == '<'))
             eat_char();
 
     }
@@ -558,7 +575,7 @@ void object()
     {
         if (try_match("("))
         {
-            //            fputs("\tpush eax\n", output);
+            // fputs("\tpush eax\n", output);
 
             int arg_no = 0;
 
@@ -591,8 +608,8 @@ void object()
             match(")");
 
             use_fn--;
-            //            fprintf(output, "\tcall dword ptr [esp+%d]; _%s\n", arg_no * word_size,globals[used_fn[use_fn]]);
-            //            fprintf(output, "\tadd esp, %d\n", (arg_no + 1) * word_size);
+            // fprintf(output, "\tcall dword ptr [esp+%d]; _%s\n", arg_no * word_size,globals[used_fn[use_fn]]);
+            // fprintf(output, "\tadd esp, %d\n", (arg_no + 1) * word_size);
             fprintf(output, "\tcall _%s\n", globals[used_fn[use_fn]]);
             fprintf(output, "\tadd esp, %d\n", (arg_no) * word_size);
 
@@ -634,6 +651,12 @@ void unary()
         fputs("\tneg eax\n", output);
 
     }
+    else if (try_match("~"))
+    {
+        unary();
+        fputs("\tnot eax\n", output);
+
+    }
     else
     {
         //This function call compiles itself
@@ -666,19 +689,21 @@ void expr(int level)
     expr(level + 1);
 
     while (level == 5 ? see("*") || see("/") || see("%")
-    : level == 4 ? see("+") || see("-") || see("|") || see("&")
+    : level == 4 ? see("+") || see("-") || see("|") || see("&") || see("<<") || see(">>") || see("^")
     : level == 3 ? see("==") || see("!=") || see("<") || see(">") || see("<=") || see(">=")
     : false)
     {
-        if (see("/"))
-            div = 1;
-        if (see("%"))
-            div = 2;
+        if (see("/")) div = 1;
+        if (see("%")) div = 2;
+        if (see("<<") || see(">>")) div = 3;
+
+
 
         fputs("\tpush eax\n", output);
 
-        char * instr = see("+") ? "add" : see("-") ? "sub" : see("|") ? "or" : see("&") ? "and" : see("*") ? "imul" : see("/") ? "idiv" : see("%") ? "idiv" :
-        see("==") ? "e" : see("!=") ? "ne" : see("<") ? "l" : see(">") ? "g" : see("<=") ? "le" : "ge";
+        char * instr = see("+") ? "add" : see("-") ? "sub" : see("|") ? "or" : see("&") ? "and" : see("*") ? "imul" : see("^") ? "xor"
+                     : see("/") ? "idiv" : see("%") ? "idiv" : see("<<") ? "sal" : see(">>") ? "sar"
+                     : see("==") ? "e" : see("!=") ? "ne" : see("<") ? "l" : see(">") ? "g" : see("<=") ? "le" : "ge";
 
         next();
         expr(level + 1);
@@ -708,11 +733,18 @@ void expr(int level)
             }
         }
         else if (level == 4)
-        {
-            fprintf(output, "\tmov ebx, eax\n"
-            "\tpop eax\n"
-            "\t%s eax, ebx\n", instr);
-        }
+            if (div == 3)
+            {
+                fprintf(output, "\tmov ecx, eax\n"
+                "\tpop eax\n"
+                "\t%s eax, cl\n", instr);
+            }
+            else
+            {
+                fprintf(output, "\tmov ebx, eax\n"
+                "\tpop eax\n"
+                "\t%s eax, ebx\n", instr);
+            }
         else
         {
             fprintf(output, "\tpop ebx\n"
@@ -746,7 +778,7 @@ void expr(int level)
         expr(level + 1);
 
         fputs("\tpop ebx\n"
-        "\tmov dword ptr [ebx], eax\n", output);
+              "\tmov dword ptr [ebx], eax\n", output);
     }
 }
 
@@ -776,12 +808,12 @@ void for_loop()
 
     // for body condition
     fprintf(output, //"# for loop entry\n"
-    "_%08d:\n", loop_to);
+                    "_%08d:\n", loop_to);
 
-    if (!see(";"))
+    if(!see(";"))
         expr(0);
     else
-        fprintf(output, "\tmov eax, 1\n");
+        fprintf(output,"\tmov eax, 1\n");
 
     fprintf(output, "\tcmp eax, 0\n"
     "\tjne _%08d\n"
@@ -865,15 +897,16 @@ void switch_label()
     match("switch");
     match("(");
     expr(0);
-    fprintf(output, //"#switch expr\n"
-    "\tmov ebx, eax\n");
+    fprintf(output, "#switch expr\n"
+                    "\tmov ebx, eax\n");
     match(")");
     match("{");
 
     do
     {
         case_default();
-    } while ((see("case") || see("default")) && !feof(input));
+    }
+    while ((see("case") || see("default")) && !feof(input));
 
     match("}");
 
@@ -1304,7 +1337,7 @@ int main(int argc, char ** argv)
         std_fns = std_fns + strlen(std_fns) + 1;
     }
 */
-    fprintf(output, "# mini-c v0.10.1\n"
+    fprintf(output, "# mini-c v0.10.3\n"
     "# %s\n"
     ".intel_syntax noprefix\n\n", inputname);
 
