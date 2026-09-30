@@ -33,6 +33,7 @@ char *line_cache;
 char *line_pointer;
 char tc = ':';
 bool list = true;
+bool source = true;
 
 char * home;
 char * buffer;
@@ -65,13 +66,14 @@ void assembler();
 
 void println()
 {
-    if (list > 0)
+    if (list)
         printf("%5d%c ", curln, tc);
 }
 
 void read_line()
 {
     line_pointer = line_cache;
+
     do
     {
         if (feof(input))
@@ -102,7 +104,8 @@ void read_line()
     if (feof(input))
         (line_pointer - 1)[0] = '\n';
     line_pointer[0] = 0;
-    fprintf(output, "# %s\n", line_cache);
+    if (source)
+        fprintf(output, "# %s\n", line_cache);
     line_pointer = line_cache;
 }
 
@@ -116,7 +119,7 @@ char next_char()
     }
 
     curch = line_pointer[0];
-	nxtch = line_pointer[1];
+    nxtch = line_pointer[1];
     line_pointer++;
     if (list)
         printf("%c", curch);
@@ -216,7 +219,7 @@ void next()
                 eat_char();
         }
     }
-    else if (isdigit(curch)) 
+    else if (isdigit(curch))
     {
         token = token_int;
 
@@ -237,7 +240,6 @@ void next()
 
             eat_char();
         }
-
         eat_char();
 
         //Operators which form a new operator when duplicated e.g. '++'
@@ -273,23 +275,9 @@ void next()
 
         if ((curch == '=') || (curch == '<'))
             eat_char();
-
     }
-	else if (((curch == '-') || (curch == '+')) && (isdigit(nxtch)))
-	{
-		char backup = curch;
-
-		eat_char();
-		if (isdigit(curch))
-		{
-			token = token_int;
-	        while (isdigit(curch) && !feof(input))
-	            eat_char();
-		}
-	}
     else
         eat_char();
-
 
     (buffer + buflength++)[0] = 0;
 }
@@ -328,8 +316,8 @@ int next_case_inner = 0;
 
 int curtype;
 int cursize;
-char *bjct;
-char *rgst;
+char * bjct;
+char * rgst;
 
 int *used_type;
 int *used_dref;
@@ -384,6 +372,7 @@ bool try_match(char * look)
 }
 
 //==== Symbol table ====
+//BookMark [{Symbol table}]
 
 char ** globals;
 int * globals_type;
@@ -404,10 +393,21 @@ int * locals_size;
 int * locals_inst;
 int param_flag = 0;
 
-char ** enum_names;
+char ** enum_name;
 int * enum_values;
 int enum_no;
 int enum_count;
+
+char **structs;
+int *struct_size;
+int *struct_start;
+int *struct_ende;
+int *struct_el_type;
+int *struct_el_size;
+int *struct_el_offset;
+char **struct_el_name;
+int struct_no;
+int struct_el_no;
 
 void sym_init(int max)
 {
@@ -432,9 +432,20 @@ void sym_init(int max)
     used_type = malloc(ptr_size * max);
     used_dref = malloc(ptr_size * max);
 
-    enum_names = malloc(ptr_size * max);
+    enum_name = malloc(ptr_size * max);
     enum_values = calloc(max, ptr_size);
     enum_no = 0;
+
+    structs = malloc(ptr_size * max);
+    struct_size = malloc(ptr_size * max);
+    struct_start = malloc(ptr_size * max);
+    struct_ende = malloc(ptr_size * max);
+    struct_el_type = malloc(ptr_size * max);
+    struct_el_size = malloc(ptr_size * max);
+    struct_el_offset = malloc(ptr_size * max);
+    struct_el_name = malloc(ptr_size * max);
+    struct_no = 0;
+    struct_el_no = 0;
 }
 
 void table_end(char ** table, int table_size)
@@ -462,6 +473,7 @@ void sym_end()
     free(globals_size);
     free(globals_inst);
     free(is_fn);
+    free(used_fn);
 
     table_end(locals, local_no);
     free(locals);
@@ -470,9 +482,20 @@ void sym_end()
     free(locals_inst);
     free(offsets);
 
-    free(enum_names);
+    free(used_type);
+    free(used_dref);
+
+    free(enum_name);
     free(enum_values);
 
+    free(structs);
+    free(struct_size);
+    free(struct_start);
+    free(struct_ende);
+    free(struct_el_type);
+    free(struct_el_size);
+    free(struct_el_offset);
+    free(struct_el_name);
 }
 
 void new_global(char * ident)
@@ -486,7 +509,8 @@ void new_global(char * ident)
 
     globals_type[global_no] = curtype;
     globals_size[global_no] = cursize;
-    globals[global_no++] = ident;
+    globals[global_no] = ident;
+    global_no++;
 }
 
 void new_fn(char * ident)
@@ -604,7 +628,7 @@ void factor()
     {
         int global = sym_lookup(globals, global_no, buffer);
         int local = sym_lookup(locals, local_no, buffer);
-        int enumidx = sym_lookup(enum_names, enum_no, buffer);
+        int enumidx = sym_lookup(enum_name, enum_no, buffer);
 
         require(global >= 0 || local >= 0 || enumidx >= 0, "no symbol '%s' declared\n");
 
@@ -635,7 +659,7 @@ void factor()
 
         if (enumidx >= 0)
         {
-            fprintf(output, "\tmov eax, %d""\t# %s\n", enum_values[enumidx], enum_names[enumidx]);
+            fprintf(output, "\tmov eax, %d""\t# %s\n", enum_values[enumidx], enum_name[enumidx]);
         }
         else if (local >= 0)
         {
@@ -661,7 +685,7 @@ void factor()
                     "\tadd ebx, %+d\n"
                     "\tmov ebx, [ebx]\n"
                     "\tmov eax, [ebx]\n", offsets[local]);
-                    if (locals_size[local]&0xF000 == 0)
+                    if (locals_size[local] & 0xF000 == 0)
                     {
                         if (locals_size[local] <= 1)
                             fprintf(output, "\tcbw\n");
@@ -697,7 +721,7 @@ void factor()
                         fprintf(output, "\tlea ebx, [_%s]\n"
                         "\tmov ebx, [ebx]\n"
                         "\tmov eax, [ebx]\n", globals[global]);
-                        if (globals_type[global]&0xF000 == 0)
+                        if (globals_type[global] & 0xF000 == 0)
                         {
                             if (globals_size[global] <= 1)
                                 fprintf(output, "\tcbw\n");
@@ -1328,7 +1352,7 @@ void line()
     else if (see("asm"))
         assembler();
 
-    else if (see("int") || see("short") || see("char") || see("long") || see("bool"))
+    else if (see("int") || see("short") || see("char") || see("long") || see("bool") || see("struct") || see("union") || see("enum"))
     {
         decl(decl_local);
     }
@@ -1387,7 +1411,7 @@ void set_enum()
 
     do
     {
-        enum_names[enum_no] = strdup(buffer);
+        enum_name[enum_no] = strdup(buffer);
         next();
         if (try_match("="))
         {
@@ -1406,9 +1430,148 @@ void set_enum()
     match(";");
 }
 
+void set_struct(int kind)
+{
+    int offset = 0;
+    int size = 0;
+    int ptr = 0;
+    char *struct_nm;
+    int struct_idx;
+    int i;
+
+    struct_size[struct_no] = 0;
+    struct_start[struct_no] = struct_el_no;
+
+    int is_struct = see("struct") ? 1 : 0;
+    next();
+    struct_nm = strdup(buffer);
+    next();
+    if (see("{"))
+    {
+        struct_idx = sym_lookup(structs, struct_no, struct_nm);
+        require(struct_idx<0, "struct name %s already used\n");
+        next();
+        do
+        {
+            structs[struct_no] = struct_nm;
+            struct_el_offset[struct_el_no] = offset;
+            struct_el_type[struct_el_no] = see("int")? _int : see("char")? _char : see("short")? _short : see("bool")? _bool : 4;
+            size = see("int")? 4 : see("char")? 1 : see("short")? 2 : see("bool")? 4 : 4;
+
+            while (true)
+            {
+                next();
+                if (see("*"))
+                {
+                    ptr = ptr << 1 | _ptr;
+                    continue;
+                }
+                break;
+            }
+            if (ptr != 0)
+            {
+                size = ptr_size;
+                struct_el_type[struct_el_no] = struct_el_type[struct_el_no] | ptr;
+            }
+            struct_el_size[struct_el_no] = size;
+            struct_el_name[struct_el_no] = strdup(buffer);
+            offset = offset + size;
+            next();
+            see(";");
+            struct_el_no++;
+            next();
+        } while (!try_match("}"));
+        struct_size[struct_no] = offset;
+        struct_ende[struct_no] = struct_el_no;
+        struct_no++;
+    }
+
+    if ((token == token_ident) || (token == token_other))
+    {
+        int loc = sym_lookup(locals,  local_no,  buffer);
+        int glo = sym_lookup(globals, global_no, buffer);
+        int str = sym_lookup(structs, struct_no, struct_nm);
+
+        if (kind == decl_local)
+        {
+            if (loc < 0)
+            {
+                ptr = 0;
+                while (see("*"))
+                {
+                    ptr = (ptr<<1) | _ptr;
+                    next();
+                }
+                cursize = struct_size[str];
+                curtype = _struct | ptr;
+
+                new_local(strdup(buffer));
+
+                if (curtype & _ptr)
+                {
+                    fprintf(output,"\tsub esp, %d\n", ptr_size);
+                }
+                else
+                {
+                    fprintf(output,"\tsub esp, %d\n", cursize);
+                }
+
+            }
+        }
+        if (kind == decl_module)
+        {
+            if (glo < 0)
+            {
+                char *type;
+                ptr = 0;
+                while (see("*"))
+                {
+                    ptr = (ptr<<1) | _ptr;
+                    next();
+                }
+                cursize = struct_size[str];
+                curtype = _struct | ptr;
+
+                new_global(strdup(buffer));
+
+                fprintf(output, ".section .data\n"
+                "_%s:\n", buffer);
+
+                if (curtype & _ptr)
+                {
+                    fprintf(output,"\tsub esp, %d\n", ptr_size);
+                }
+                else
+                {
+                    for(i=struct_start[str]; i<struct_ende[str]; i++)
+                    {
+                        int t = struct_el_type[i];
+                        if ((t&0xf000) != 0)
+                            type = "long";
+                        else if ((t&0x0fff) == _char)
+                            type = "byte";
+                        else if ((t&0x0fff) == _short)
+                            type = "word";
+                        else if ((t&0x0fff) == _long)
+                            type = "qword";
+                        else
+                            type = "long";
+
+                        fprintf(output,"\t.%s 0\n", type);
+                    }
+                    fprintf(output, ".section .text\n");
+                }
+            }
+        }
+        next();
+    }
+
+    match(";");
+}
+
 void decl(int kind)
 {
-    //A C declaration comes in three forms:
+    // A C declaration comes in three forms:
     // - Local decls, which end in a semicolon and can have an initializer.
     // - Parameter decls, which do not and cannot.
     // - Module decls, which end in a semicolon unless there is a function body.
@@ -1422,6 +1585,11 @@ void decl(int kind)
     if (see("enum"))
     {
         set_enum();
+        return;
+    }
+    else if ((see("struct")) || (see("union")))
+    {
+        set_struct(kind);
         return;
     }
 
@@ -1446,6 +1614,7 @@ void decl(int kind)
 
         next();
 
+        //BookMark [{Functions}]
         // Functions
         if (try_match("("))
         {
@@ -1457,6 +1626,7 @@ void decl(int kind)
             }
 
             // Params
+            //BookMark [{Params}]
             if (waiting_for(")"))
                 do
                 {
@@ -1472,6 +1642,7 @@ void decl(int kind)
             fn = true;
 
             // Body
+            //BookMark [{Body}]
             if (see("{"))
             {
                 require(kind == decl_module, "a function implementation is illegal here\n");
@@ -1481,6 +1652,7 @@ void decl(int kind)
             }
 
             // Add it to the symbol table
+            //BookMark [{Add to Symbol-Table}]
         }
         else
         {
@@ -1497,7 +1669,7 @@ void decl(int kind)
                     locals_type[local_no - 1] = locals_type[local_no - 1] | _array;
                     stack_bdf = locals_inst[local_no - 1] * cursize;
                     // locals_type[local_no-1] = locals_type[local_no-1] | _ptr;
-+                    fprintf(output, "\tsub esp, %d\n", stack_bdf);
+                    + fprintf(output, "\tsub esp, %d\n", stack_bdf);
                     next();
                     match("]");
                 }
@@ -1517,7 +1689,7 @@ void decl(int kind)
         }
 
         //Initialization
-
+        //BookMark [{Initialization}]
         if (see("="))
         {
             require(!fn && kind != decl_param,
@@ -1605,7 +1777,8 @@ void decl(int kind)
             fprintf(output, "\tmov dword ptr [ebp%+d], eax\t# %s\n", offsets[local], locals[local]);
         }
 
-        if (kind == decl_param) break;
+        if (kind == decl_param)
+            break;
 
     } while (try_match(","));
 
@@ -1648,6 +1821,25 @@ void do_pragma()
             errors++;
         }
     }
+    else if (see("source"))
+    {
+        next();
+        match("(");
+
+        if (see("on"))
+            source = 1;
+        if (see("off"))
+            source = 0;
+
+        next();
+
+        if (!see(")"))
+        {
+            fprintf(stderr, "%s:%d: error: ", inputname, curln);
+            fprintf(stderr, "expected ')', found '%s'\n", buffer);
+            errors++;
+        }
+    }
 }
 
 void do_include()
@@ -1671,7 +1863,7 @@ void do_include()
         (buffer + i)[0] = 0;
         while (curch != '\n')
             next_char();
-        include = malloc(strlen(home)+strlen(buffer)+10);
+        include = malloc(strlen(home) + strlen(buffer) + 10);
         strcpy(include, home);
         strcat(include, "include\\");
         strcat(include, buffer);
@@ -1704,7 +1896,7 @@ void do_include()
         (buffer + i)[0] = 0;
         while (curch != '\n')
             next_char();
-        include = malloc(strlen(home)+strlen(buffer)+1);
+        include = malloc(strlen(home) + strlen(buffer) + 1);
         strcpy(include, home);
         strcat(include, buffer);
         // puts(include);
@@ -1749,33 +1941,33 @@ void do_preprocess()
 
 int main(int argc, char ** argv)
 {
-    char *version = "mini-c v0.16.2";
-    char *fn_out;
+    char *version = "mini-c v0.17.c";
+    // char *fn_out;
     int i;
 
     if (argc != 2)
     {
-        printf("%s\nUsage: cc <file>",version);
+        printf("%s\nUsage: cc <file>", version);
         return 1;
     }
 
-    home = malloc(strlen(argv[0])+200);
+    home = malloc(strlen(argv[0]) + 200);
     if (argv[0][1] == ':')
     {
         strcpy(home, argv[0]);
     }
     else
     {
-        GetCurrentDirectory(strlen(argv[0])+200, home);
+        GetCurrentDirectory(strlen(argv[0]) + 200, home);
         strcat(home, "\\");
-        strcat(home,argv[0]);
+        strcat(home, argv[0]);
     }
-    
-    for(i=strlen(home); i>0; i--)
+
+    for (i = strlen(home); i > 0; i--)
     {
         if (home[i] == '\\')
         {
-            home[i+1] = 0; 
+            home[i + 1] = 0;
             break;
         }
     }
@@ -1794,7 +1986,7 @@ int main(int argc, char ** argv)
     //A negative-terminated null-terminated strings string, if you will
     char * std_fns = "malloc\0calloc\0free\0atoi\0fopen\0fclose\0fgetc\0ungetc\0feof\0fputs\0fprintf\0puts\0printf\0"
     "isalpha\0isdigit\0isalnum\0strlen\0strcmp\0strchr\0strcpy\0strdup\0\xFF\xFF\xFF\xFF";
-    
+
     //Remember that mini-c is typeless, so this is both a byte read and a 4 byte read.
     //(char) 0xFF == -1, (int) 0xFFFFFF == -1
     while (std_fns[0] != -1)
@@ -1806,10 +1998,10 @@ int main(int argc, char ** argv)
     bjct = "dword";
     rgst = "eax";
 
-    fprintf(output, 
-        "# %s\n"
-        "# file: %s\n"
-        ".intel_syntax noprefix\n\n", version, inputname);
+    fprintf(output,
+    "# %s\n"
+    "# file: %s\n"
+    ".intel_syntax noprefix\n\n", version, inputname);
 
     program();
 
