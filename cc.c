@@ -28,6 +28,7 @@ int curln;
 char curch;
 char *line_cache;
 char *line_pointer;
+char tc = ':';
 
 char * buffer;
 int buflength;
@@ -38,6 +39,7 @@ int token_ident = 1;
 int token_int = 2;
 int token_char = 3;
 int token_str = 4;
+int token_ptr = 5;
 
 // Prototypes
 void error(char * format);
@@ -46,10 +48,11 @@ void next();
 bool see(char *look);
 void line();
 void decl(int kind);
+int do_preprocess();
 
 void println()
 {
-    printf("%5d: ", curln);
+    printf("%5d%c ", curln, tc);
 }
 
 void read_line()
@@ -57,7 +60,7 @@ void read_line()
     line_pointer = line_cache;
     do
     {
-        if (feof(input)) 
+        if (feof(input))
         {
             if (old_input != 0)
             {
@@ -68,23 +71,25 @@ void read_line()
                 curln = old_line;
                 old_input = 0;
                 line_pointer = line_cache;
-//                (line_pointer+0)[0] = ';';
-                (line_pointer+0)[0] = '\n';
-                (line_pointer+0)[0] = 0;
-                next();
+                //                (line_pointer+0)[0] = ';';
+                (line_pointer + 0)[0] = '\n';
+                (line_pointer + 1)[0] = 0;
+                printf("\n");
+                tc = ':';
+//                next();
                 return;
             }
             break;
         }
-		else
+        else
         {
-			line_pointer[0] = fgetc(input);
-		}
+            line_pointer[0] = fgetc(input);
+        }
     } while (((line_pointer++)[0] != '\n') && !(feof(input)));
 
-//    if (*(line_pointer-1) != '\n') 
+    //    if (*(line_pointer-1) != '\n') 
     if (feof(input))
-        (line_pointer-1)[0] = '\n';
+        (line_pointer - 1)[0] = '\n';
     line_pointer[0] = 0;
     fprintf(output, "# %s\n", line_cache);
     line_pointer = line_cache;
@@ -99,7 +104,7 @@ char next_char()
         read_line();
     }
 
-    curch = line_pointer[0]&0xFF;
+    curch = line_pointer[0] & 0xFF;
     line_pointer++;
     printf("%c", curch);
 
@@ -131,7 +136,7 @@ void next()
     while (curch == ' ' || curch == '\r' || curch == '\n' || curch == '\t')
         next_char();
 
-    //Treat preprocessor lines as line comments
+        //Treat preprocessor lines as line comments
     if (curch == '#')
     {
         do_preprocess();
@@ -144,7 +149,7 @@ void next()
         while (curch != '\n' && !feof(input))
             next_char();
 
-        //Restart the function (to skip subsequent whitespace, comments and pp)
+            //Restart the function (to skip subsequent whitespace, comments and pp)
         next();
         return;
     }
@@ -178,17 +183,17 @@ void next()
         while ((isalnum(curch) || curch == '_') && !feof(input))
             eat_char();
 
-    //Integer literal
+            //Integer literal
     }
     else if (curch == '0')
     {
         token = token_int;
         eat_char();
-        if (curch=='x' || curch=='X')
+        if (curch == 'x' || curch == 'X')
         {
-            while ((((curch>='0')&&(curch<='9')) ||
-                    ((curch>='A')&&(curch>='F')) ||
-                    ((curch>='a')&&(curch>='f'))) && !feof(input))
+            while ((((curch >= '0') && (curch <= '9')) ||
+            ((curch >= 'A') && (curch >= 'F')) ||
+            ((curch >= 'a') && (curch >= 'f'))) && !feof(input))
                 eat_char();
         }
         else
@@ -204,7 +209,7 @@ void next()
         while (isdigit(curch) && !feof(input))
             eat_char();
 
-    //String or character literal
+            //String or character literal
     }
     else if (curch == '\'' || curch == '"')
     {
@@ -221,7 +226,7 @@ void next()
 
         eat_char();
 
-    //Operators which form a new operator when duplicated e.g. '++'
+        //Operators which form a new operator when duplicated e.g. '++'
     }
     else if (curch == '+' || curch == '-' || curch == '=' || curch == '|' || curch == '&')
     {
@@ -230,7 +235,7 @@ void next()
         if (curch == buffer[0])
             eat_char();
 
-    //Operators which may be followed by a '='
+            //Operators which may be followed by a '='
     }
     else if (curch == '!' || curch == '>' || curch == '<')
     {
@@ -343,7 +348,7 @@ void sym_init(int max)
     globals = malloc(ptr_size * max);
     global_no = 0;
     is_fn = calloc(max, ptr_size);
-    used_fn =malloc(word_size * max);
+    used_fn = malloc(word_size * max);
     use_fn = 0;
 
     locals = malloc(ptr_size * max);
@@ -479,7 +484,7 @@ void factor()
     {
         int global = sym_lookup(globals, global_no, buffer);
         int local = sym_lookup(locals, local_no, buffer);
-        int enumidx = sym_lookup(enum_names,enum_no, buffer);
+        int enumidx = sym_lookup(enum_names, enum_no, buffer);
 
         require(global >= 0 || local >= 0 || enumidx >= 0, "no symbol '%s' declared\n");
         next();
@@ -491,11 +496,15 @@ void factor()
         {
             fprintf(output, "\tmov eax, %d""\t# %s\n", enum_values[enumidx], enum_names[enumidx]);
         }
-        else if (global >= 0) 
+        else if (local >= 0)
+        {
+            fprintf(output, "\t%s eax, [ebp%+d]\n", lvalue ? "lea" : "mov", offsets[local]);
+        }
+        else if (global >= 0)
         {
             if (!is_fn[global])
             {
-//              fprintf(output, "\t%s eax, [_%s]\n", is_fn[global] || lvalue ? "lea" : "mov", globals[global]);
+                //              fprintf(output, "\t%s eax, [_%s]\n", is_fn[global] || lvalue ? "lea" : "mov", globals[global]);
                 fprintf(output, "\t%s eax, [_%s]\n", lvalue ? "lea" : "mov", globals[global]);
             }
             else
@@ -503,8 +512,6 @@ void factor()
                 used_fn[use_fn++] = global;
             }
         }
-        else if (local >= 0)
-            fprintf(output, "\t%s eax, [ebp%+d]\n", lvalue ? "lea" : "mov", offsets[local]);
 
     }
     else if (token == token_int || token == token_char)
@@ -551,7 +558,7 @@ void object()
     {
         if (try_match("("))
         {
-//            fputs("\tpush eax\n", output);
+            //            fputs("\tpush eax\n", output);
 
             int arg_no = 0;
 
@@ -584,9 +591,9 @@ void object()
             match(")");
 
             use_fn--;
-//            fprintf(output, "\tcall dword ptr [esp+%d]; _%s\n", arg_no * word_size,globals[used_fn[use_fn]]);
-//            fprintf(output, "\tadd esp, %d\n", (arg_no + 1) * word_size);
-            fprintf(output, "\tcall _%s\n",globals[used_fn[use_fn]]);
+            //            fprintf(output, "\tcall dword ptr [esp+%d]; _%s\n", arg_no * word_size,globals[used_fn[use_fn]]);
+            //            fprintf(output, "\tadd esp, %d\n", (arg_no + 1) * word_size);
+            fprintf(output, "\tcall _%s\n", globals[used_fn[use_fn]]);
             fprintf(output, "\tadd esp, %d\n", (arg_no) * word_size);
 
         }
@@ -663,8 +670,10 @@ void expr(int level)
     : level == 3 ? see("==") || see("!=") || see("<") || see(">") || see("<=") || see(">=")
     : false)
     {
-        if (see("/")) div = 1;
-        if (see("%")) div = 2;
+        if (see("/"))
+            div = 1;
+        if (see("%"))
+            div = 2;
 
         fputs("\tpush eax\n", output);
 
@@ -741,7 +750,6 @@ void expr(int level)
     }
 }
 
-
 void for_loop()
 {
     // labels for break and continue
@@ -754,7 +762,7 @@ void for_loop()
 
     loop_to_inner = loop_to;
     break_to_inner = break_to;
-    
+
     // for body intro
     match("for");
     match("(");
@@ -768,12 +776,12 @@ void for_loop()
 
     // for body condition
     fprintf(output, //"# for loop entry\n"
-                    "_%08d:\n", loop_to);
-    
-    if(!see(";"))
+    "_%08d:\n", loop_to);
+
+    if (!see(";"))
         expr(0);
     else
-        fprintf(output,"\tmov eax, 1\n");
+        fprintf(output, "\tmov eax, 1\n");
 
     fprintf(output, "\tcmp eax, 0\n"
     "\tjne _%08d\n"
@@ -800,7 +808,6 @@ void for_loop()
     fprintf(output, "#for loop break\njmp _%08d\n"
     "_%08d:\n", incl_to, break_to);
 
-
     // restore break and continue
     loop_to_inner = loop_to_prev;
     break_to_inner = break_to_prev;
@@ -821,14 +828,14 @@ void case_default()
         fprintf(output, "\tcmp eax, ebx\n"
         "\tjne _%08d\n", false_branch);
         if (next_old != 0)
-            fprintf(output,"_%08d:\n", next_old);
+            fprintf(output, "_%08d:\n", next_old);
         match(":");
-        
+
         while (!see("case") && !see("default") && !see("}"))
         {
             line();
-        } 
-        fprintf(output,"\tjmp _%08d\n", next_case);
+        }
+        fprintf(output, "\tjmp _%08d\n", next_case);
     }
     else if (see("default"))
     {
@@ -836,7 +843,7 @@ void case_default()
         next();
         if (next_old != 0)
         {
-            fprintf(output,"_%08d:\n", next_old);
+            fprintf(output, "_%08d:\n", next_old);
             next_case_inner = 0;
         }
         match(":");
@@ -859,21 +866,20 @@ void switch_label()
     match("(");
     expr(0);
     fprintf(output, //"#switch expr\n"
-                    "\tmov ebx, eax\n");
+    "\tmov ebx, eax\n");
     match(")");
     match("{");
 
     do
     {
         case_default();
-    }
-    while ((see("case") || see("default")) && !feof(input));
+    } while ((see("case") || see("default")) && !feof(input));
 
     match("}");
 
     if (next_case_inner != 0)
     {
-        fprintf(output,"_%08d:\n", next_case_inner);
+        fprintf(output, "_%08d:\n", next_case_inner);
         next_case_inner = 0;
     }
 
@@ -968,7 +974,6 @@ void while_loop()
 
 }
 
-
 //See decl() implementation
 int decl_module = 1;
 int decl_local = 2;
@@ -998,7 +1003,6 @@ void line()
     {
         decl(decl_local);
     }
-
     else if (try_match("{"))
     {
         while (waiting_for("}"))
@@ -1066,7 +1070,7 @@ void set_enum()
             enum_count = atoi(buffer) * vz;
             next();
         }
-        enum_values[enum_no++] = enum_count++;        
+        enum_values[enum_no++] = enum_count++;
     } while (try_match(","));
 
     match("}");
@@ -1188,6 +1192,7 @@ void program()
     while (!feof(input))
         decl(decl_module);
 }
+
 void do_include()
 {
     int i;
@@ -1197,18 +1202,20 @@ void do_include()
     if (curch == '<')
     {
         next_char();
-        for (i=0; curch != '>'; i++)
+        for (i = 0; curch != '>'; i++)
         {
-            if (curch == '\n') return;
+            if (curch == '\n')
+                return;
             (buffer + i)[0] = curch;
             next_char();
         }
-        (buffer+i)[0] = 0;
-        while(curch != '\n') next_char();
+        (buffer + i)[0] = 0;
+        while (curch != '\n')
+            next_char();
         old_input = input;
         old_line = curln;
         old_iname = inputname;
-        input = fopen(buffer,"r");
+        input = fopen(buffer, "r");
         if (input == 0)
         {
             input = old_input;
@@ -1218,25 +1225,33 @@ void do_include()
         }
         curln = 0;
         inputname = strdup(buffer);
+        tc = '+';
     }
     else if (curch == '"')
     {
         next_char();
-        for (i=0; curch != '"'; i++)
+        for (i = 0; curch != '"'; i++)
         {
-            if (curch == '\n') return;
+            if (curch == '\n')
+                return;
             (buffer + i)[0] = curch;
             next_char();
         }
-        (buffer+i)[0] = 0;
-        while(curch != '\n') next_char();
+        (buffer + i)[0] = 0;
+        while (curch != '\n')
+            next_char();
         old_input = input;
-        input = fopen(buffer,"r");
+        input = fopen(buffer, "r");
         if (input == 0)
         {
             input = old_input;
             buflength = 0;
+            error("Header file not found\n");
+            return;
         }
+        curln = 0;
+        inputname = strdup(buffer);
+        tc = '*';
     }
     else
     {
@@ -1258,7 +1273,6 @@ int do_preprocess()
         do_include();
 }
 
-
 int main(int argc, char ** argv)
 {
     char *fn_out;
@@ -1277,7 +1291,7 @@ int main(int argc, char ** argv)
 
     sym_init(256);
 
-    //No arrays? Fine! A 0xFFFFFF terminated string of null terminated strings will do.
+/*    //No arrays? Fine! A 0xFFFFFF terminated string of null terminated strings will do.
     //A negative-terminated null-terminated strings string, if you will
     char * std_fns = "malloc\0calloc\0free\0atoi\0fopen\0fclose\0fgetc\0ungetc\0feof\0fputs\0fprintf\0puts\0printf\0"
     "isalpha\0isdigit\0isalnum\0strlen\0strcmp\0strchr\0strcpy\0strdup\0\xFF\xFF\xFF\xFF";
@@ -1289,10 +1303,10 @@ int main(int argc, char ** argv)
         new_fn(std_fns);
         std_fns = std_fns + strlen(std_fns) + 1;
     }
-
-    fprintf(output, "# mini-c v0.9.2\n"
-                    "# %s\n"
-                    ".intel_syntax noprefix\n\n", inputname);
+*/
+    fprintf(output, "# mini-c v0.10.1\n"
+    "# %s\n"
+    ".intel_syntax noprefix\n\n", inputname);
 
     program();
 
