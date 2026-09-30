@@ -1,7 +1,7 @@
 //-------------------------------//
 // mini-c, by Sam Nipps (c) 2015 //
 // MIT license                   //
-// AlexN-114                2025 //
+// AlexN-114             2025/26 //
 //-------------------------------//
 
 #include <stdio.h>
@@ -1900,45 +1900,55 @@ void decl(int kind)
             }
             else if (try_match("["))
             {
+                char *gtype;
+                int xtimes;
+
                 if (token == token_int)
                 {
                     globals_inst[global_no - 1] = atoi(buffer);
                     globals_type[global_no - 1] = globals_type[global_no - 1] | _array;
                     // globals_type[global_no-1] = globals_type[global_no-1] | _ptr;
-                    if (curtype == _long)
+
+                    gtype = (curtype == _char)? "byte" : (curtype == _short) ? "word" : (curtype == _long) ? "qword" : "long";
+                    xtimes = atoi(buffer);
+
+                    require(xtimes >= 0, "only positive values areallowed\n");
+
+                    fprintf(output, "_%s:\n", ident);
+
+                    next();
+                    match("]");
+
+                    if (try_match("="))
                     {
-                        fprintf(output,
-                                "_%s: .rept %s\n"
-                                ".quad 0\n"
-                                ".endr\n", ident, buffer);
+                        if (try_match("{"))
+                        {
+                            do
+                            {
+                               fprintf(output, "\t.%s %s\n", gtype, buffer);
+                               xtimes--;
+                               next();
+                               if (see("}"))
+                               {
+                                   next();
+                                   break;
+                               }
+                               require(xtimes>=0, "to many items\n");
+                            } while (try_match(","));
+                        }
                     }
-                    else if (curtype == _char)
+
+                    if (xtimes>0)
                     {
                         fprintf(output,
-                                "_%s: .rept %s\n"
-                                ".byte 0\n"
-                                ".endr\n", ident, buffer);
-                    }
-                    else if (curtype == _short)
-                    {
-                        fprintf(output,
-                                "_%s: .rept %s\n"
-                                ".word 0\n"
-                                ".endr\n", ident, buffer);
-                    }
-                    else
-                    {
-                        fprintf(output,
-                                "_%s: .rept %s\n"
-                                ".long 0\n"
-                                ".endr\n", ident, buffer);
+                                "\t.rept %d\n"
+                                "\t.%s 0\n"
+                                "\t.endr\n", xtimes, gtype);
                     }
                 }
                 else
                     error("expected a constant expression, found '%s'\n");
 
-                next();
-                match("]");
 
             }
             else if (!fn)
@@ -2122,7 +2132,7 @@ void do_preprocess()
 
 int main(int argc, char ** argv)
 {
-    char *version = "mini-c v0.17.4";
+    char *version = "mini-c v0.18a";
     // char *fn_out;
     int i;
 
