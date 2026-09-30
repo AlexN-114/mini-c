@@ -1,10 +1,9 @@
- //-------------------------------//
+//-------------------------------//
 // mini-c, by Sam Nipps (c) 2015 //
 // MIT license                   //
 // AlexN-114                2025 //
 //-------------------------------//
 
-#pragma
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -42,12 +41,12 @@ enum {_bool = 0x0001, _char = 0x0002, _short = 0x0004, _int = 0x0008, _long = 0x
 
 int token_other = 0;
 int token_ident = 1;
-int token_char = 2;
+int token_char  = 2;
 int token_short = 3;
-int token_int = 4;
-int token_long = 5;
-int token_str = 6;
-int token_ptr = 7;
+int token_int   = 4;
+int token_long  = 5;
+int token_str   = 6;
+int token_ptr   = 7;
 
 // Prototypes
 void error(char * format);
@@ -56,7 +55,7 @@ void next();
 bool see(char *look);
 void line();
 void decl(int kind);
-int do_preprocess();
+void do_preprocess();
 int _sizeof();
 int sym_lookup(char ** table, int table_size, char * look);
 void assembler();
@@ -97,7 +96,6 @@ void read_line()
         }
     } while (((line_pointer++)[0] != '\n') && !(feof(input)));
 
-    //    if (*(line_pointer-1) != '\n')
     if (feof(input))
         (line_pointer - 1)[0] = '\n';
     line_pointer[0] = 0;
@@ -116,7 +114,7 @@ char next_char()
 
     curch = line_pointer[0] & 0xFF;
     line_pointer++;
-    if (list)    
+    if (list)
         printf("%c", curch);
 
     return curch;
@@ -766,7 +764,7 @@ void object()
             fputs("\tpush eax\n", output);
 
             used_dref[used_idx] = (used_dref[used_idx] << 1) | _ptr;
-            // fprintf(output,"# Pointer: %04x %04x %d\n", _curtype, ~used_dref[used_idx], used_idx); 
+            // fprintf(output,"# Pointer: %04x %04x %d\n", _curtype, ~used_dref[used_idx], used_idx);
 
             expr(0);
             match("]");
@@ -774,7 +772,7 @@ void object()
             if (see("=") || see("++") || see("--"))
                 lvalue = true;
 
-                // fprintf(output,"# Pointer: %04x %04x %d\n", _curtype, ~used_dref[used_idx-1], used_idx); 
+                // fprintf(output,"# Pointer: %04x %04x %d\n", _curtype, ~used_dref[used_idx-1], used_idx);
 
             int x = _curtype & ~used_dref[used_idx - 1] & 0xF000;
 
@@ -1130,12 +1128,31 @@ void assembler()
 int _sizeof()
 {
     int size;
+    int local;
+    int global;
+
     match("sizeof");
     match("(");
 
     //next();
 
-    size = see("char")? 1 : see("short")? 2 : see("int")? 4 : see("long")? 8 : ptr_size;
+    local = sym_lookup(locals, local_no, buffer);
+    if (local >= 0)
+    {
+        size = ((locals_type[local] & _ptr) != 0)? ptr_size : locals_size[local];
+    }
+    else
+    {
+        global = sym_lookup(globals, global_no, buffer); 
+        if (global >= 0)
+        {
+            size = ((globals_type[global] & _ptr) != 0)? ptr_size : globals_size[global];
+        }
+        else
+        {
+            size = see("char")? 1 : see("short")? 2 : see("int")? 4 : see("long")? 8 : ptr_size;
+        }
+    }
 
     while (!see(")"))
         next();
@@ -1417,7 +1434,14 @@ void decl(int kind)
         if (kind == decl_local)
         {
             local = new_local(ident);
-            fprintf(output, "\tsub esp, %d\n", word_size);
+            if (curtype == _long)
+            {
+                fprintf(output, "\tsub esp, %d\n", cursize);
+            }
+            else
+            {
+                fprintf(output, "\tsub esp, %d\n", word_size);
+            }
         }
         else
             (kind == decl_module ? new_global : new_param)(ident);
@@ -1494,9 +1518,16 @@ void do_pragma()
         if (see("off")) list = 0;
 
         next();
-        //match(")");
+
+        if (!see(")"))
+        {
+            printf("%s:%d: error: ", inputname, curln);
+            printf("expected ')', found '%s'\n", buffer);
+            errors++;
+        }
     }
 }
+
 
 void do_include()
 {
@@ -1566,7 +1597,7 @@ void do_include()
     return;
 }
 
-int do_preprocess()
+void do_preprocess()
 {
     next_char();
     buflength = 0;
@@ -1584,7 +1615,7 @@ int do_preprocess()
 
 int main(int argc, char ** argv)
 {
-    char *version = "mini-c v0.14.0";
+    char *version = "mini-c v0.14.3";
     char *fn_out;
     if (argc != 2)
     {
@@ -1606,7 +1637,7 @@ int main(int argc, char ** argv)
     //A negative-terminated null-terminated strings string, if you will
     char * std_fns = "malloc\0calloc\0free\0atoi\0fopen\0fclose\0fgetc\0ungetc\0feof\0fputs\0fprintf\0puts\0printf\0"
     "isalpha\0isdigit\0isalnum\0strlen\0strcmp\0strchr\0strcpy\0strdup\0\xFF\xFF\xFF\xFF";
-    
+
     //Remember that mini-c is typeless, so this is both a byte read and a 4 byte read.
     //(char) 0xFF == -1, (int) 0xFFFFFF == -1
     while (std_fns[0] != -1)
