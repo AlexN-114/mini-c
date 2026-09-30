@@ -4,10 +4,10 @@
 // AlexN-114                2025 //
 //-------------------------------//
 
+#include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <ctype.h>
-#include <stdio.h>
 #include <stdbool.h>
 
 //No enums :(
@@ -444,7 +444,7 @@ void new_global(char * ident)
 {
     char * locBuf = malloc(100);
     int local = sym_lookup(globals, global_no, ident);
-    sprintf(locBuf, "global symbol '%s' already declared\n", ident);
+    sprintf(locBuf, "global symbol '%s' aleady declared\n", ident);
     if (local >= 0)
         require(is_fn[local], locBuf);
     free(locBuf);
@@ -573,7 +573,6 @@ void factor()
             curtype = locals_typ[local];
         }
         else if (global >= 0)
-
         {
             cursize = globals_size[global];
             curtype = globals_typ[global];
@@ -869,16 +868,16 @@ void expr(int level)
             {
                 fprintf(output, "\tmov ebx, eax\n"
                                 "\tpop eax\n"
-                                "\txor edx,edx\n"
+                                "\txor edx, edx\n"
                                 "\t%s ebx\n", instr);
             }
             else
             {
                 fprintf(output, "\tmov ebx, eax\n"
                                 "\tpop eax\n"
-                                "\txor edx,edx\n"
+                                "\txor edx, edx\n"
                                 "\t%s ebx\n"
-                                "\tmov eax,edx\n", instr);
+                                "\tmov eax, edx\n", instr);
             }
         }
         else if (level == 4)
@@ -963,6 +962,7 @@ void for_loop()
     break_to_inner = break_to;
 
     // for body intro
+    fprintf(output, "# for loop init\n");
     match("for");
     match("(");
     if (!see(";"))
@@ -1088,6 +1088,20 @@ void switch_label()
     break_to_inner = break_to_prev;
 }
 
+void assembler()
+{
+    match("asm");
+    match("(");
+
+    buffer[strlen(buffer)-1] = 0;
+    fprintf(output, buffer+1);
+    fprintf(output, "\n");
+    next();
+
+    match(")");
+    match(";");
+}
+
 void branch(bool isexpr)
 {
     int false_branch = new_label();
@@ -1198,6 +1212,9 @@ void line()
 
     else if (see("switch"))
         switch_label();
+
+    else if (see("asm"))
+        assembler();
 
     else if (see("int") || see("char") || see("bool"))
     {
@@ -1512,7 +1529,7 @@ int main(int argc, char ** argv)
     bjct = "dword";
     rgst = "eax";
 
-    fprintf(output, "# mini-c v0.11.0\n"
+    fprintf(output, "# mini-c v0.12.0\n"
     "# %s\n"
     ".intel_syntax noprefix\n\n", inputname);
 
