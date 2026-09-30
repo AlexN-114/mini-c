@@ -36,8 +36,8 @@ char * buffer;
 int buflength;
 int token;
 int flag;
-enum {getadr = 1, getvalue = 2};
-enum {_bool = 0x0001, _char = 0x0002, _short = 0x0004, _int = 0x0008, _long = 0x0010, _struct = 0x0100, _type = 0x0200, _unsigned = 0x00800, _ptr = 0x01000};
+enum {getadr = 1, getvalue = 2, array = 4};
+enum {_bool = 0x0001, _char = 0x0002, _short = 0x0004, _int = 0x0008, _long = 0x0010, _struct = 0x0100, _type = 0x0200, _unsigned = 0x00800, _ptr = 0x01000, _array = 0x010000};
 
 int token_other = 0;
 int token_ident = 1;
@@ -577,13 +577,11 @@ void factor()
     {
         fprintf(output, "\tmov eax, %d\n", see("true") ? 1 : 0);
         next();
-
     }
     else if (see("sizeof"))
     {
         fprintf(output, "\tmov eax, %d\n", _sizeof());
         next();
-
     }
     else if (token == token_ident)
     {
@@ -624,25 +622,30 @@ void factor()
         }
         else if (local >= 0)
         {
-            if (flag & getadr)
+            if ((flag & getadr) || (locals_type[local] & _array))
             {
-                fprintf(output, "\tmov eax, ebp\n"
-                "\tadd eax, %+d\n", offsets[local]);
+                fprintf(output, 
+                    "\tmov eax, ebp\n"
+                    "\tadd eax, %+d\n", offsets[local]);
             }
             else if (flag & getvalue)
             {
                 if (lvalue)
                 {
-                    fprintf(output, "\tmov ebx, ebp\n"
-                    "\tadd ebx, %+d\n"
-                    "\tmov eax, [ebx]\n", offsets[local]);
+                    fprintf(output, 
+                        "\tmov ebx, ebp\n"
+                        "\tadd ebx, %+d\n"
+                        "\tmov eax, [ebx]\n", offsets[local]);
                 }
                 else
                 {
-                    fprintf(output, "\tmov ebx, ebp\n"
-                    "\tadd ebx, %+d\n"
-                    "\tmov ebx, [ebx]\n"
-                    "\tmov eax, [ebx]\n", offsets[local]);
+                    fprintf(output, 
+                        "\tmov ebx, ebp\n"
+                        "\tadd ebx, %+d\n"
+                        "\tmov ebx, [ebx]\n"
+                        "\tmov eax, [ebx]\n", offsets[local]);
+                    if (locals_size[local] <= 1) fprintf(output, "\tcbw\n");
+                    if (locals_size[local] <= 2) fprintf(output, "\tcwde\n");
                 }
                 used_dref[used_idx] = (used_dref[used_idx] << 1) | _ptr;
             }
@@ -656,7 +659,7 @@ void factor()
             if (!is_fn[global])
             {
                 // fprintf(output, "\t%s eax, [_%s]\n", is_fn[global] || lvalue ? "lea" : "mov", globals[global]);
-                if (flag & getadr)
+                if ((flag & getadr) || (globals_type[global] & _array))
                 {
                     fprintf(output, "\tlea eax, _%s\n", globals[global]);
                 }
@@ -672,7 +675,8 @@ void factor()
                         fprintf(output, "\tlea ebx, [_%s]\n"
                         "\tmov ebx, [ebx]\n"
                         "\tmov eax, [ebx]\n", globals[global]);
-
+                        if (globals_size[global] <= 1) fprintf(output, "\tcbw\n");
+                        if (globals_size[global] <= 2) fprintf(output, "\tcwde\n");
                     }
                     used_dref[used_idx] = (used_dref[used_idx] << 1) | _ptr;
                 }
@@ -792,8 +796,14 @@ void object()
 
             _cursize = (x != 0)? ptr_size : _cursize;
 
-            fprintf(output, "\tpop ebx\n"
-            "\t%s eax, [eax*%d+ebx] # %s\n", lvalue ? "lea" : "mov", _cursize, bjct, rgst);
+            fprintf(output, 
+                "\tpop ebx\n"
+                "\t%s eax, [eax*%d+ebx] # %s\n", lvalue ? "lea" : "mov", _cursize, bjct, rgst);
+            if (!lvalue)
+            {
+                if (_cursize <= 1) fprintf(output, "\tcbw\n");
+                if (_cursize <= 2) fprintf(output, "\tcwde\n");
+            }
 
         }
         else
@@ -1455,6 +1465,7 @@ void decl(int kind)
             {
                 next();
                 locals_inst[local_no-1] = atoi(buffer);
+                locals_type[local_no-1] = locals_type[local_no-1] | _array;
                 stack_bdf = locals_inst[local_no-1] * cursize;
                 // locals_type[local_no-1] = locals_type[local_no-1] | _ptr;
                 fprintf(output, "\tsub esp, %d\n", stack_bdf);
@@ -1481,7 +1492,7 @@ void decl(int kind)
     if (see("="))
     {
         require(!fn && kind != decl_param,
-        fn ? "cannot initialize a function\n" : "cannot initialize a parameter");
+        fn ? "cannot initialize a function\n" : "cannot initialize a parameter\n");
     } 
 
 
@@ -1512,6 +1523,7 @@ void decl(int kind)
             if (token == token_int)
             {
                 globals_inst[global_no-1] = atoi(buffer);
+                globals_type[global_no-1] = globals_type[global_no-1] | _array;
                 // globals_type[global_no-1] = globals_type[global_no-1] | _ptr;
                 if (curtype == _long)
                 {
@@ -1691,7 +1703,7 @@ void do_preprocess()
 
 int main(int argc, char ** argv)
 {
-    char *version = "mini-c v0.15.0";
+    char *version = "mini-c v0.15.3";
     char *fn_out;
     if (argc != 2)
     {
