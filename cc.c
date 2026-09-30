@@ -27,8 +27,6 @@ FILE * old_input = 0;
 //==== Lexer ====
 int curln;
 char curch;
-int curtype;
-int cursize;
 char *line_cache;
 char *line_pointer;
 char tc = ':';
@@ -38,7 +36,7 @@ int buflength;
 int token;
 int flag;
 enum {getadr=1, getvalue=2};
-enum {_unknown=0x0001, _char=0x0002, _short=0x0004, _int=0x0008, _long=0x0010, _bool=0x0020, _struct=0x0100, _type=0x0200, _unsigned=0x010000, _ptr=0x20000};
+enum {_bool=0x0001, _char=0x0002, _short=0x0004, _int=0x0008, _long=0x0010, _struct=0x0100, _type=0x0200, _unsigned=0x00800, _ptr=0x01000};
 
 int token_other = 0;
 int token_ident = 1;
@@ -55,6 +53,7 @@ bool see(char *look);
 void line();
 void decl(int kind);
 int do_preprocess();
+int sym_lookup(char ** table, int table_size, char * look);
 
 void println()
 {
@@ -91,7 +90,7 @@ void read_line()
         }
     } while (((line_pointer++)[0] != '\n') && !(feof(input)));
 
-    //    if (*(line_pointer-1) != '\n') 
+    //    if (*(line_pointer-1) != '\n')
     if (feof(input))
         (line_pointer - 1)[0] = '\n';
     line_pointer[0] = 0;
@@ -304,6 +303,15 @@ int loop_to_inner = 0;
 int break_to_inner = 0;
 int next_case_inner = 0;
 
+int curtype;
+int cursize;
+char * bjct;
+char * rgst;
+
+int *used_type;
+int *used_dref;
+int  used_idx = 0;
+
 void error(char * format)
 {
     printf("\n%s:%d: error: ", inputname, curln);
@@ -368,6 +376,7 @@ int param_no;
 int * offsets;
 int * locals_typ;
 int * locals_size;
+int param_flag = 0;
 
 char ** enum_names;
 int * enum_values;
@@ -390,6 +399,9 @@ void sym_init(int max)
     local_no = 0;
     param_no = 0;
     offsets = calloc(max, word_size);
+
+    used_type = malloc(ptr_size * max);
+    used_dref = malloc(ptr_size * max);
 
     enum_names = malloc(ptr_size * max);
     enum_values = calloc(max, ptr_size);
@@ -428,26 +440,27 @@ void sym_end()
     free(offsets);
 }
 
-void new_global(char * ident, int typ)
+void new_global(char * ident)
 {
     char * locBuf = malloc(100);
     int local = sym_lookup(globals, global_no, ident);
     sprintf(locBuf, "global symbol '%s' aleady declared\n", ident);
-    require(local < 0, locBuf);
+    if (local >= 0)
+        require(is_fn[local], locBuf);
     free(locBuf);
 
-    globals_typ[global_no] = typ;
+    globals_typ[global_no] = curtype;
     globals_size[global_no] = cursize;
     globals[global_no++] = ident;
 }
 
-void new_fn(char * ident, int typ)
+void new_fn(char * ident)
 {
     is_fn[global_no] = true;
-    new_global(ident, typ);
+    new_global(ident);
 }
 
-int new_local(char * ident, int typ)
+int new_local(char * ident)
 {
     char * locBuf = malloc(100);
     int local = sym_lookup(locals, local_no, ident);
@@ -457,17 +470,18 @@ int new_local(char * ident, int typ)
 
     int var_index = local_no - param_no;
 
-    locals_typ[local_no] = typ;
-    locals_size[global_no] = cursize;
+    locals_typ[local_no] = curtype;
+    locals_size[local_no] = cursize;
     locals[local_no] = ident;
     //The first local variable is directly below the base pointer
     offsets[local_no] = -word_size * (var_index + 1);
     return local_no++;
 }
 
-void new_param(char * ident, int typ)
+void new_param(char * ident)
 {
-    int local = new_local(ident, typ);
+    param_flag = 1;
+    int local = new_local(ident);
 
     //At and above the base pointer, in order, are:
     // 1. the old base pointer, [ebp]
@@ -475,6 +489,7 @@ void new_param(char * ident, int typ)
     // 3. the first parameter, [ebp+2W]
     //   and so on
     offsets[local] = word_size * (2 + param_no++);
+    param_flag = 0;
 }
 
 //Enter the scope of a new function
@@ -551,6 +566,27 @@ void factor()
         int enumidx = sym_lookup(enum_names, enum_no, buffer);
 
         require(global >= 0 || local >= 0 || enumidx >= 0, "no symbol '%s' declared\n");
+
+        if (local >= 0)
+        {
+            cursize = locals_size[local];
+            curtype = locals_typ[local];
+        }
+        else if (global >= 0)
+        {
+            cursize = globals_size[global];
+            curtype = globals_typ[global];
+        }
+        else
+        {
+            cursize = word_size;
+            curtype = 0;
+        }
+
+        used_idx++;
+        used_type[used_idx] = curtype;
+        used_dref[used_idx] = 0;
+
         next();
 
         if (see("=") || see("++") || see("--"))
@@ -563,13 +599,20 @@ void factor()
         else if (local >= 0)
         {
             if (flag & getadr)
+            {
                 fprintf(output, "\tmov eax, ebp\n"
                                 "\tadd eax, %+d\n", offsets[local]);
+            }
             else if (flag & getvalue)
+            {
                 fprintf(output, "\tmov ebx, [ebp%+d]\n"
                                 "\tmov eax, [ebx]\n", offsets[local]);
+                used_dref[used_idx] = (used_dref[used_idx] << 1) | _ptr;
+            }
             else
+            {
                 fprintf(output, "\t%s eax, [ebp%+d]\n", lvalue ? "lea" : "mov", offsets[local]);
+            }
         }
         else if (global >= 0)
         {
@@ -577,19 +620,25 @@ void factor()
             {
                 // fprintf(output, "\t%s eax, [_%s]\n", is_fn[global] || lvalue ? "lea" : "mov", globals[global]);
                 if (flag & getadr)
+                {
                     fprintf(output, "\tlea eax, _%s\n", globals[global]);
-                if (flag & getvalue)
+                }
+                else if (flag & getvalue)
+                {
                     fprintf(output, "\tlea ebx, [_%s]\n"
                                     "\tmov eax, [ebx]\n", globals[global]);
+                    used_dref[used_idx] = (used_dref[used_idx] << 1) | _ptr;
+                }
                 else
+                {
                     fprintf(output, "\t%s eax, [_%s]\n", lvalue ? "lea" : "mov", globals[global]);
+                }
             }
             else
             {
                 used_fn[use_fn++] = global;
             }
         }
-
     }
     else if (token == token_int || token == token_char)
     {
@@ -625,6 +674,7 @@ void factor()
     }
     else
         error("expected an expression, found '%s'\n");
+    
 }
 
 void object()
@@ -676,7 +726,10 @@ void object()
         }
         else if (try_match("["))
         {
+            int _cursize = cursize;
             fputs("\tpush eax\n", output);
+
+            used_dref[used_idx] = (used_dref[used_idx] << 1) | _ptr;
 
             expr(0);
             match("]");
@@ -685,11 +738,13 @@ void object()
                 lvalue = true;
 
             fprintf(output, "\tpop ebx\n"
-            "\t%s eax, [eax*%d+ebx]\n", lvalue ? "lea" : "mov", word_size);
+                            "\t%s eax, [eax*%d+ebx] # %s\n", lvalue ? "lea" : "mov", _cursize, bjct, rgst);
 
         }
         else
+        {
             return;
+        }
     }
 }
 
@@ -701,8 +756,8 @@ void unary()
         unary();
 
         fputs("\tcmp eax, 0\n"
-        "\tmov eax, 0\n"
-        "\tsete al\n", output);
+              "\tmov eax, 0\n"
+              "\tsete al\n", output);
 
     }
     else if (try_match("-"))
@@ -736,9 +791,11 @@ void unary()
 
         if (see("++") || see("--"))
         {
+            //bjct = ((curtype & 0xF002) == 0x2)? "byte" : (cursize == 2)? "word" : "dword";
+
             fprintf(output, "\tmov ebx, eax\n"
             "\tmov eax, [ebx]\n"
-            "\t%s dword ptr [ebx], 1\n", see("++") ? "add" : "sub");
+            "\t%s dword ptr [ebx], 1  # %s\n", see("++") ? "add" : "sub", bjct);
 
             needs_lvalue("assignment operator '%s' requires a modifiable object\n");
             next();
@@ -769,8 +826,6 @@ void expr(int level)
         if (see("%")) div = 2;
         if (see("<<") || see(">>")) div = 3;
 
-
-
         fputs("\tpush eax\n", output);
 
         char * instr = see("+") ? "add" : see("-") ? "sub" : see("|") ? "or" : see("&") ? "and" : see("*") ? "imul" : see("^") ? "xor"
@@ -785,15 +840,15 @@ void expr(int level)
             if (div == 0)
             {
                 fprintf(output, "\tmov ebx, eax\n"
-                "\tpop eax\n"
-                "\t%s eax, ebx\n", instr);
+                                "\tpop eax\n"
+                                "\t%s eax, ebx\n", instr);
             }
             else if (div == 1)
             {
                 fprintf(output, "\tmov ebx, eax\n"
-                "\tpop eax\n"
-                "\txor edx,edx\n"
-                "\t%s ebx\n", instr);
+                                "\tpop eax\n"
+                                "\txor edx,edx\n"
+                                "\t%s ebx\n", instr);
             }
             else
             {
@@ -846,11 +901,29 @@ void expr(int level)
     {
         fputs("\tpush eax\n", output);
 
+        bjct = "dword";
+        rgst = "eax";
+        
+        if (lvalue && !param_flag && (token!=token_str) &&(used_type[used_idx]))
+        {
+            int x1 = ~used_dref[used_idx];
+            int x2 = used_type[used_idx];
+            int x3 = x1 & x2;
+            if ((x3 & 0xf000) == 0)
+            // if ((~used_dref[used_idx] & used_type[used_idx]) & 0xf000 == 0)
+            {
+                bjct = (cursize == 1)? "byte" : (cursize == 2)? "word" : "dword";
+                rgst = (cursize == 1)? "al"   : (cursize == 2)? "ax"   : "eax";
+            }
+           used_idx--;
+        }
+
         needs_lvalue("assignment requires a modifiable object\n");
         expr(level + 1);
 
-        fputs("\tpop ebx\n"
-              "\tmov dword ptr [ebx], eax\n", output);
+        fprintf(output, "\tpop ebx\n"
+                        //"\tmov %s ptr [ebx], %s # %d %d\n", bjct, rgst, cursize, curtype);
+                        "\tmov %s ptr [ebx], %s # %d %d\n", bjct, rgst, cursize, curtype);
     }
 }
 
@@ -1180,7 +1253,6 @@ void set_enum()
 
     match("}");
     match(";");
-
 }
 
 void decl(int kind)
@@ -1200,14 +1272,14 @@ void decl(int kind)
         return;
     }
 
-    curtype = see("char") ? _char : see("int") ? _int : see("short") ? _short : see("long") ? _long : see("unsigned") ? _unsigned : see("bool") ? _bool : _unknown; 
-    cursize = see("char") ? 1 : see("int") ? 4 : see("short") ? 2 : see("long") ? 8 : see("unsigned") ? 4 : see("bool") ? 4 : 4; 
+    curtype = see("char") ? _char : see("int") ? _int : see("short") ? _short : see("long") ? _long : see("unsigned") ? _unsigned : see("bool") ? _bool : 0;
+    cursize = see("char") ? 1 : see("int") ? 4 : see("short") ? 2 : see("long") ? 8 : see("unsigned") ? 4 : see("bool") ? 4 : 4;
 
     next();
 
     int __ptr = 0;
     while (try_match("*"))
-        __ptr = __ptr << 1 + _ptr,
+        __ptr = (__ptr << 1) + _ptr;
         
     curtype = curtype | __ptr;
 
@@ -1229,7 +1301,7 @@ void decl(int kind)
 
         match(")");
 
-        new_fn(ident, curtype);
+        new_fn(ident);
         fn = true;
 
         //Body
@@ -1247,11 +1319,11 @@ void decl(int kind)
     {
         if (kind == decl_local)
         {
-            local = new_local(ident, curtype);
+            local = new_local(ident);
             fprintf(output, "\tsub esp, %d\n", word_size);
         }
         else
-            (kind == decl_module ? new_global : new_param)(ident, curtype);
+            (kind == decl_module ? new_global : new_param)(ident);
     }
 
     //Initialization
@@ -1415,7 +1487,10 @@ int main(int argc, char ** argv)
         std_fns = std_fns + strlen(std_fns) + 1;
     }
 */
-    fprintf(output, "# mini-c v0.10.8\n"
+    bjct = "dword";
+    rgst = "eax";
+
+    fprintf(output, "# mini-c v0.10.9\n"
     "# %s\n"
     ".intel_syntax noprefix\n\n", inputname);
 
