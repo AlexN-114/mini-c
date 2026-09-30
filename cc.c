@@ -4,6 +4,7 @@
 // AlexN-114                2025 //
 //-------------------------------//
 
+#pragma
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -30,6 +31,7 @@ char curch;
 char *line_cache;
 char *line_pointer;
 char tc = ':';
+bool list = true;
 
 char * buffer;
 int buflength;
@@ -55,12 +57,14 @@ bool see(char *look);
 void line();
 void decl(int kind);
 int do_preprocess();
+int _sizeof();
 int sym_lookup(char ** table, int table_size, char * look);
 void assembler();
 
 void println()
 {
-    printf("%5d%c ", curln, tc);
+    if (list > 0)
+        printf("%5d%c ", curln, tc);
 }
 
 void read_line()
@@ -112,7 +116,8 @@ char next_char()
 
     curch = line_pointer[0] & 0xFF;
     line_pointer++;
-    printf("%c", curch);
+    if (list)    
+        printf("%c", curch);
 
     return curch;
 }
@@ -564,7 +569,7 @@ void factor()
     }
     else if (see("sizeof"))
     {
-        fprintf(output, "\tmov eax, %d\n", size_of());
+        fprintf(output, "\tmov eax, %d\n", _sizeof());
         next();
 
     }
@@ -1122,7 +1127,7 @@ void assembler()
     match(";");
 }
 
-int size_of()
+int _sizeof()
 {
     int size;
     match("sizeof");
@@ -1130,7 +1135,7 @@ int size_of()
 
     //next();
 
-    size = see("char")? 1 : see("short")? 2 : see("int")? 4 : see("long")? 8 : 4;
+    size = see("char")? 1 : see("short")? 2 : see("int")? 4 : see("long")? 8 : ptr_size;
 
     while (!see(")"))
         next();
@@ -1251,7 +1256,7 @@ void line()
         switch_label();
 
     else if (see("sizeof"))
-        size_of();
+        _sizeof();
 
     else if (see("asm"))
         assembler();
@@ -1476,6 +1481,23 @@ void program()
         decl(decl_module);
 }
 
+void do_pragma()
+{
+    next();
+
+    if (see("list"))
+    {
+        next();
+        match("(");
+
+        if (see("on")) list = 1;
+        if (see("off")) list = 0;
+
+        next();
+        //match(")");
+    }
+}
+
 void do_include()
 {
     int i;
@@ -1551,14 +1573,18 @@ int do_preprocess()
 
     while (isalpha(curch))
         eat_char();
+    buffer[buflength] = 0;
 
     if (see("include"))
         do_include();
+
+    if (see("pragma"))
+        do_pragma();
 }
 
 int main(int argc, char ** argv)
 {
-    char *version = "mini-c v0.13.2";
+    char *version = "mini-c v0.14.0";
     char *fn_out;
     if (argc != 2)
     {

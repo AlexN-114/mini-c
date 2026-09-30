@@ -1,4 +1,5 @@
 // Header for mini-c
+#pragma list(off)
 
 int fopen(char *fname, char *attrib);
 int fclose(int *handle);
@@ -26,4 +27,5 @@ int read(int fd, int cnt, int size, char *buffer);
 int write(int fd, int cnt, int size, char *buffer);
 int flush(int fd);
 
+#pragma list(on)
 // end
