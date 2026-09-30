@@ -9,6 +9,7 @@
 #include <string.h>
 #include <ctype.h>
 #include <stdbool.h>
+#include <windows.h>
 
 //No enums :(
 int ptr_size = 4;
@@ -27,11 +28,13 @@ FILE * old_input = 0;
 //==== Lexer ====
 int curln;
 char curch;
+char nxtch;
 char *line_cache;
 char *line_pointer;
 char tc = ':';
 bool list = true;
 
+char * home;
 char * buffer;
 int buflength;
 int token;
@@ -112,7 +115,8 @@ char next_char()
         read_line();
     }
 
-    curch = line_pointer[0] & 0xFF;
+    curch = line_pointer[0];
+	nxtch = line_pointer[1];
     line_pointer++;
     if (list)
         printf("%c", curch);
@@ -189,7 +193,7 @@ void next()
     {
         token = token_ident;
 
-        while ((isalnum(curch) || curch == '_') && !feof(input))
+        while ((isalnum(curch) || curch == '_' || curch == '@') && !feof(input))
             eat_char();
 
             //Integer literal
@@ -212,7 +216,7 @@ void next()
                 eat_char();
         }
     }
-    else if (isdigit(curch))
+    else if (isdigit(curch)) 
     {
         token = token_int;
 
@@ -271,8 +275,21 @@ void next()
             eat_char();
 
     }
+	else if (((curch == '-') || (curch == '+')) && (isdigit(nxtch)))
+	{
+		char backup = curch;
+
+		eat_char();
+		if (isdigit(curch))
+		{
+			token = token_int;
+	        while (isdigit(curch) && !feof(input))
+	            eat_char();
+		}
+	}
     else
         eat_char();
+
 
     (buffer + buflength++)[0] = 0;
 }
@@ -311,8 +328,8 @@ int next_case_inner = 0;
 
 int curtype;
 int cursize;
-char * bjct;
-char * rgst;
+char *bjct;
+char *rgst;
 
 int *used_type;
 int *used_dref;
@@ -644,10 +661,13 @@ void factor()
                     "\tadd ebx, %+d\n"
                     "\tmov ebx, [ebx]\n"
                     "\tmov eax, [ebx]\n", offsets[local]);
-                    if (locals_size[local] <= 1)
-                        fprintf(output, "\tcbw\n");
-                    if (locals_size[local] <= 2)
-                        fprintf(output, "\tcwde\n");
+                    if (locals_size[local]&0xF000 == 0)
+                    {
+                        if (locals_size[local] <= 1)
+                            fprintf(output, "\tcbw\n");
+                        if (locals_size[local] <= 2)
+                            fprintf(output, "\tcwde\n");
+                    }
                 }
                 used_dref[used_idx] = (used_dref[used_idx] << 1) | _ptr;
             }
@@ -677,10 +697,13 @@ void factor()
                         fprintf(output, "\tlea ebx, [_%s]\n"
                         "\tmov ebx, [ebx]\n"
                         "\tmov eax, [ebx]\n", globals[global]);
-                        if (globals_size[global] <= 1)
-                            fprintf(output, "\tcbw\n");
-                        if (globals_size[global] <= 2)
-                            fprintf(output, "\tcwde\n");
+                        if (globals_type[global]&0xF000 == 0)
+                        {
+                            if (globals_size[global] <= 1)
+                                fprintf(output, "\tcbw\n");
+                            if (globals_size[global] <= 2)
+                                fprintf(output, "\tcwde\n");
+                        }
                     }
                     used_dref[used_idx] = (used_dref[used_idx] << 1) | _ptr;
                 }
@@ -699,7 +722,6 @@ void factor()
     {
         fprintf(output, "\tmov eax, %s\n", buffer);
         next();
-
     }
     else if (token == token_str)
     {
@@ -1016,7 +1038,7 @@ void for_loop()
     break_to_inner = break_to;
 
     // for body intro
-    fprintf(output, "# for loop init\n");
+    fprintf(output, "## for loop init\n");
     match("for");
     match("(");
     if (!see(";"))
@@ -1028,7 +1050,7 @@ void for_loop()
     match(";");
 
     // for body condition
-    fprintf(output, "# for loop entry\n"
+    fprintf(output, "## for loop entry\n"
     "_%08d:\n", loop_to);
 
     if (!see(";"))
@@ -1058,7 +1080,7 @@ void for_loop()
 
     line();
 
-    fprintf(output, "#for loop break\njmp _%08d\n"
+    fprintf(output, "##for loop break\njmp _%08d\n"
     "_%08d:\n", incl_to, break_to);
 
     // restore break and continue
@@ -1631,6 +1653,8 @@ void do_pragma()
 void do_include()
 {
     int i;
+    char *include;
+
     next_char();
     buflength = 0;
 
@@ -1647,10 +1671,15 @@ void do_include()
         (buffer + i)[0] = 0;
         while (curch != '\n')
             next_char();
+        include = malloc(strlen(home)+strlen(buffer)+10);
+        strcpy(include, home);
+        strcat(include, "include\\");
+        strcat(include, buffer);
+        // puts(include);
         old_input = input;
         old_line = curln;
         old_iname = inputname;
-        input = fopen(buffer, "r");
+        input = fopen(include, "r");
         if (input == 0)
         {
             input = old_input;
@@ -1675,8 +1704,14 @@ void do_include()
         (buffer + i)[0] = 0;
         while (curch != '\n')
             next_char();
+        include = malloc(strlen(home)+strlen(buffer)+1);
+        strcpy(include, home);
+        strcat(include, buffer);
+        // puts(include);
         old_input = input;
-        input = fopen(buffer, "r");
+        old_line = curln;
+        old_iname = inputname;
+        input = fopen(include, "r");
         if (input == 0)
         {
             input = old_input;
@@ -1714,12 +1749,35 @@ void do_preprocess()
 
 int main(int argc, char ** argv)
 {
-    char *version = "mini-c v0.16.0";
+    char *version = "mini-c v0.16.2";
     char *fn_out;
+    int i;
+
     if (argc != 2)
     {
-        puts("Usage: cc <file>");
+        printf("%s\nUsage: cc <file>",version);
         return 1;
+    }
+
+    home = malloc(strlen(argv[0])+200);
+    if (argv[0][1] == ':')
+    {
+        strcpy(home, argv[0]);
+    }
+    else
+    {
+        GetCurrentDirectory(strlen(argv[0])+200, home);
+        strcat(home, "\\");
+        strcat(home,argv[0]);
+    }
+    
+    for(i=strlen(home); i>0; i--)
+    {
+        if (home[i] == '\\')
+        {
+            home[i+1] = 0; 
+            break;
+        }
     }
 
     outputname = strdup(argv[1]);

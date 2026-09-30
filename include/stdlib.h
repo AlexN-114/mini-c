@@ -7,7 +7,10 @@ int free();
 
 int atoi(char *s);
 int itoa(int v, int b);
+int atol(char *s);
+int ltoa(int v, int b);
 
+int atexit();
 int exit(int ec);
 
 #pragma list(on)
