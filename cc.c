@@ -320,9 +320,9 @@ int used_idx = 0;
 
 void error(char * format)
 {
-    printf("\n%s:%d: error: ", inputname, curln);
+    fprintf(stderr, "\n%s:%d: error: ", inputname, curln);
     //Accepting an untrusted format string? Naughty!
-    printf(format, buffer);
+    fprintf(stderr, format, buffer);
     errors++;
 }
 
@@ -346,8 +346,8 @@ void match(char * look)
 {
     if (!see(look))
     {
-        printf("%s:%d: error: ", inputname, curln);
-        printf("expected '%s', found '%s'\n", look, buffer);
+        fprintf(stderr, "%s:%d: error: ", inputname, curln);
+        fprintf(stderr, "expected '%s', found '%s'\n", look, buffer);
         errors++;
     }
 
@@ -371,6 +371,7 @@ bool try_match(char * look)
 char ** globals;
 int * globals_type;
 int * globals_size;
+int * globals_inst;
 int global_no;
 bool * is_fn;
 int *used_fn;
@@ -379,9 +380,11 @@ int use_fn;
 char ** locals;
 int local_no;
 int param_no;
+int local_offset;
 int * offsets;
 int * locals_type;
 int * locals_size;
+int * locals_inst;
 int param_flag = 0;
 
 char ** enum_names;
@@ -394,6 +397,7 @@ void sym_init(int max)
     globals = malloc(ptr_size * max);
     globals_type = malloc(ptr_size * max);
     globals_size = malloc(ptr_size * max);
+    globals_inst = malloc(ptr_size * max);
     global_no = 0;
     is_fn = calloc(max, ptr_size);
     used_fn = malloc(word_size * max);
@@ -402,8 +406,10 @@ void sym_init(int max)
     locals = malloc(ptr_size * max);
     locals_type = malloc(ptr_size * max);
     locals_size = malloc(ptr_size * max);
+    locals_inst = malloc(ptr_size * max);
     local_no = 0;
     param_no = 0;
+    local_offset = 0;
     offsets = calloc(max, word_size);
 
     used_type = malloc(ptr_size * max);
@@ -437,14 +443,20 @@ void sym_end()
     free(globals);
     free(globals_type);
     free(globals_size);
+    free(globals_inst);
     free(is_fn);
 
     table_end(locals, local_no);
     free(locals);
     free(locals_type);
     free(locals_size);
+    free(locals_inst);
     free(offsets);
-}
+
+    free(enum_names);
+    free(enum_values);
+
+    }
 
 void new_global(char * ident)
 {
@@ -481,6 +493,7 @@ int new_local(char * ident)
     locals[local_no] = ident;
     //The first local variable is directly below the base pointer
     offsets[local_no] = -word_size * (var_index + 1);
+    // offsets[local_no] = -word_size * (var_index + 1);
     return local_no++;
 }
 
@@ -504,6 +517,7 @@ void new_scope()
     table_end(locals, local_no);
     local_no = 0;
     param_no = 0;
+    local_offset = 0;
 }
 
 int sym_lookup(char ** table, int table_size, char * look)
@@ -1139,18 +1153,18 @@ int _sizeof()
     local = sym_lookup(locals, local_no, buffer);
     if (local >= 0)
     {
-        size = ((locals_type[local] & _ptr) != 0)? ptr_size : locals_size[local];
+        size = locals_inst[local] * (((locals_type[local] & _ptr) != 0)? ptr_size : locals_size[local]);
     }
     else
     {
         global = sym_lookup(globals, global_no, buffer); 
         if (global >= 0)
         {
-            size = ((globals_type[global] & _ptr) != 0)? ptr_size : globals_size[global];
+            size = globals_inst[global] * (((globals_type[global] & _ptr) != 0)? ptr_size : globals_size[global]);
         }
         else
         {
-            size = see("char")? 1 : see("short")? 2 : see("int")? 4 : see("long")? 8 : ptr_size;
+            size = see("char")? 1 : see("short")? 2 : see("int")? 4 : see("long")? 8 : see("bool")? 4 : ptr_size;
         }
     }
 
@@ -1278,7 +1292,7 @@ void line()
     else if (see("asm"))
         assembler();
 
-    else if (see("int") || see("short") || see("char") || see ("long"))
+    else if (see("int") || see("short") || see("char") || see ("long") || see ("bool"))
     {
         decl(decl_local);
     }
@@ -1376,7 +1390,7 @@ void decl(int kind)
     }
 
     curtype = see("char") ? _char : see("int") ? _int : see("short") ? _short : see("long") ? _long : see("unsigned") ? _unsigned : see("bool") ? _bool : 0;
-    cursize = see("char") ? 1 : see("short") ? 2 : see("int") ? 4 : see("long") ? 8 : see("unsigned") ? 4 : see("bool") ? 4 : 4;
+    cursize = see("char") ? 1 : see("short") ? 2 : see("int") ? 4 : see("long") ? 8 : see("unsigned") ? 4 : see("bool") ? 4 : word_size;
     token = see("char") ? token_char : see("short") ? token_short : see("int") ? token_int : see("long") ? token_long : token_other;
 
     next();
@@ -1433,8 +1447,21 @@ void decl(int kind)
     {
         if (kind == decl_local)
         {
+            int stack_bdf = 4;
             local = new_local(ident);
-            if (curtype == _long)
+            locals_inst[local_no-1] = 1;
+
+            if (see("["))
+            {
+                next();
+                locals_inst[local_no-1] = atoi(buffer);
+                stack_bdf = locals_inst[local_no-1] * cursize;
+                // locals_type[local_no-1] = locals_type[local_no-1] | _ptr;
+                fprintf(output, "\tsub esp, %d\n", stack_bdf);
+                next();
+                match("]");
+            }
+            else if (curtype == _long)
             {
                 fprintf(output, "\tsub esp, %d\n", cursize);
             }
@@ -1442,6 +1469,8 @@ void decl(int kind)
             {
                 fprintf(output, "\tsub esp, %d\n", word_size);
             }
+            local_offset = local_offset - stack_bdf;
+            offsets[local_no-1] = local_offset;
         }
         else
             (kind == decl_module ? new_global : new_param)(ident);
@@ -1450,11 +1479,16 @@ void decl(int kind)
     //Initialization
 
     if (see("="))
+    {
         require(!fn && kind != decl_param,
         fn ? "cannot initialize a function\n" : "cannot initialize a parameter");
+    } 
+
 
     if (kind == decl_module)
     {
+        globals_inst[global_no-1] = 1;
+
         if (!fn)
             fputs(".section .data\n", output);
 
@@ -1473,6 +1507,48 @@ void decl(int kind)
 
             //Static data defaults to zero if no initializer
         }
+        else if (try_match("["))
+        {
+            if (token == token_int)
+            {
+                globals_inst[global_no-1] = atoi(buffer);
+                // globals_type[global_no-1] = globals_type[global_no-1] | _ptr;
+                if (curtype == _long)
+                {
+                    fprintf(output, 
+                        "_%s: .rept %s\n"
+                        ".quad 0\n"
+                        ".endr\n", ident, buffer);
+                }
+                else if (curtype == _char)
+                {
+                    fprintf(output, 
+                        "_%s: .rept %s\n"
+                        ".byte 0\n"
+                        ".endr\n", ident, buffer);
+                }
+                else if (curtype == _short)
+                {
+                    fprintf(output, 
+                        "_%s: .rept %s\n"
+                        ".word 0\n"
+                        ".endr\n", ident, buffer);
+                }
+                else
+                {
+                    fprintf(output, 
+                        "_%s: .rept %s\n"
+                        ".long 0\n"
+                        ".endr\n", ident, buffer);
+                }
+            }
+            else
+                error("expected a constant expression, found '%s'\n");
+                    
+            next();
+            match("]");
+
+        }
         else if (!fn)
             if (curtype == _long)
                 fprintf(output, "_%s: .quad 0\n", ident);
@@ -1486,7 +1562,7 @@ void decl(int kind)
     else if (try_match("="))
     {
         expr(0);
-        fprintf(output, "\tmov dword ptr [ebp%+d], eax\n", offsets[local]);
+        fprintf(output, "\tmov dword ptr [ebp%+d], eax\t# %s\n", offsets[local], locals[local]);
     }
 
     if (!fn_impl && kind != decl_param)
@@ -1521,8 +1597,8 @@ void do_pragma()
 
         if (!see(")"))
         {
-            printf("%s:%d: error: ", inputname, curln);
-            printf("expected ')', found '%s'\n", buffer);
+            fprintf(stderr, "%s:%d: error: ", inputname, curln);
+            fprintf(stderr, "expected ')', found '%s'\n", buffer);
             errors++;
         }
     }
@@ -1615,7 +1691,7 @@ void do_preprocess()
 
 int main(int argc, char ** argv)
 {
-    char *version = "mini-c v0.14.3";
+    char *version = "mini-c v0.15.0";
     char *fn_out;
     if (argc != 2)
     {
