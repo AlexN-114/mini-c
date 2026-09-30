@@ -27,6 +27,8 @@ FILE * old_input = 0;
 //==== Lexer ====
 int curln;
 char curch;
+int curtype;
+int cursize;
 char *line_cache;
 char *line_pointer;
 char tc = ':';
@@ -36,6 +38,7 @@ int buflength;
 int token;
 int flag;
 enum {getadr=1, getvalue=2};
+enum {_unknown=0x0001, _char=0x0002, _short=0x0004, _int=0x0008, _long=0x0010, _bool=0x0020, _struct=0x0100, _type=0x0200, _unsigned=0x010000, _ptr=0x20000};
 
 int token_other = 0;
 int token_ident = 1;
@@ -274,6 +277,12 @@ void lex_init(char * filename, int maxlen)
     inputname = strdup(filename);
     input = fopen(filename, "r");
 
+    if (input == 0)
+    {
+        printf("File '%s' not found!\n", filename);
+        exit(2);
+    }
+
     //Get the lexer into a usable state for the parser
     curln = 1;
     println();
@@ -346,6 +355,8 @@ bool try_match(char * look)
 //==== Symbol table ====
 
 char ** globals;
+int * globals_typ;
+int * globals_size;
 int global_no;
 bool * is_fn;
 int *used_fn;
@@ -355,6 +366,8 @@ char ** locals;
 int local_no;
 int param_no;
 int * offsets;
+int * locals_typ;
+int * locals_size;
 
 char ** enum_names;
 int * enum_values;
@@ -364,12 +377,16 @@ int enum_count;
 void sym_init(int max)
 {
     globals = malloc(ptr_size * max);
+    globals_typ = malloc(ptr_size * max);
+    globals_size = malloc(ptr_size * max);
     global_no = 0;
     is_fn = calloc(max, ptr_size);
     used_fn = malloc(word_size * max);
     use_fn = 0;
 
     locals = malloc(ptr_size * max);
+    locals_typ = malloc(ptr_size * max);
+    locals_size = malloc(ptr_size * max);
     local_no = 0;
     param_no = 0;
     offsets = calloc(max, word_size);
@@ -382,52 +399,75 @@ void sym_init(int max)
 void table_end(char ** table, int table_size)
 {
     int i = 0;
+    int * types;
+
+    if (table == globals)
+        types = globals_typ;
+    else
+        types = locals_typ;
 
     while (i < table_size)
+    {
+        //printf("%5x\t%s\n",types[i], table[i]);
         free(table[i++]);
+    }
 }
 
 void sym_end()
 {
-    //    table_end(globals, global_no);
+    table_end(globals, global_no);
     free(globals);
+    free(globals_typ);
+    free(globals_size);
     free(is_fn);
 
     table_end(locals, local_no);
     free(locals);
+    free(locals_typ);
+    free(locals_size);
     free(offsets);
 }
 
-void new_global(char * ident)
+void new_global(char * ident, int typ)
 {
+    char * locBuf = malloc(100);
+    int local = sym_lookup(globals, global_no, ident);
+    sprintf(locBuf, "global symbol '%s' aleady declared\n", ident);
+    require(local < 0, locBuf);
+    free(locBuf);
+
+    globals_typ[global_no] = typ;
+    globals_size[global_no] = cursize;
     globals[global_no++] = ident;
 }
 
-void new_fn(char * ident)
+void new_fn(char * ident, int typ)
 {
     is_fn[global_no] = true;
-    new_global(ident);
+    new_global(ident, typ);
 }
 
-int new_local(char * ident)
+int new_local(char * ident, int typ)
 {
     char * locBuf = malloc(100);
     int local = sym_lookup(locals, local_no, ident);
-    sprintf(locBuf, "symbol '%s' aleady declared\n", ident);
+    sprintf(locBuf, "local symbol '%s' aleady declared\n", ident);
     require(local < 0, locBuf);
     free(locBuf);
 
     int var_index = local_no - param_no;
 
+    locals_typ[local_no] = typ;
+    locals_size[global_no] = cursize;
     locals[local_no] = ident;
     //The first local variable is directly below the base pointer
     offsets[local_no] = -word_size * (var_index + 1);
     return local_no++;
 }
 
-void new_param(char * ident)
+void new_param(char * ident, int typ)
 {
-    int local = new_local(ident);
+    int local = new_local(ident, typ);
 
     //At and above the base pointer, in order, are:
     // 1. the old base pointer, [ebp]
@@ -540,7 +580,7 @@ void factor()
                     fprintf(output, "\tlea eax, _%s\n", globals[global]);
                 if (flag & getvalue)
                     fprintf(output, "\tlea ebx, [_%s]\n"
-                                    "\tmov eax, [ebx]", globals[global]);
+                                    "\tmov eax, [ebx]\n", globals[global]);
                 else
                     fprintf(output, "\t%s eax, [_%s]\n", lvalue ? "lea" : "mov", globals[global]);
             }
@@ -1160,10 +1200,16 @@ void decl(int kind)
         return;
     }
 
+    curtype = see("char") ? _char : see("int") ? _int : see("short") ? _short : see("long") ? _long : see("unsigned") ? _unsigned : see("bool") ? _bool : _unknown; 
+    cursize = see("char") ? 1 : see("int") ? 4 : see("short") ? 2 : see("long") ? 8 : see("unsigned") ? 4 : see("bool") ? 4 : 4; 
+
     next();
 
+    int __ptr = 0;
     while (try_match("*"))
-        ;
+        __ptr = __ptr << 1 + _ptr,
+        
+    curtype = curtype | __ptr;
 
     char * ident = strdup(buffer);
     next();
@@ -1183,7 +1229,7 @@ void decl(int kind)
 
         match(")");
 
-        new_fn(ident);
+        new_fn(ident, curtype);
         fn = true;
 
         //Body
@@ -1201,11 +1247,11 @@ void decl(int kind)
     {
         if (kind == decl_local)
         {
-            local = new_local(ident);
+            local = new_local(ident, curtype);
             fprintf(output, "\tsub esp, %d\n", word_size);
         }
         else
-            (kind == decl_module ? new_global : new_param)(ident);
+            (kind == decl_module ? new_global : new_param)(ident, curtype);
     }
 
     //Initialization
@@ -1352,9 +1398,9 @@ int main(int argc, char ** argv)
 
     output = fopen(outputname, "w");
 
-    lex_init(argv[1], 256);
+    lex_init(argv[1], 1024);
 
-    sym_init(256);
+    sym_init(1024);
 
 /*  //No arrays? Fine! A 0xFFFFFF terminated string of null terminated strings will do.
     //A negative-terminated null-terminated strings string, if you will
@@ -1369,7 +1415,7 @@ int main(int argc, char ** argv)
         std_fns = std_fns + strlen(std_fns) + 1;
     }
 */
-    fprintf(output, "# mini-c v0.10.7\n"
+    fprintf(output, "# mini-c v0.10.8\n"
     "# %s\n"
     ".intel_syntax noprefix\n\n", inputname);
 
