@@ -1,4 +1,4 @@
-//-------------------------------//
+ //-------------------------------//
 // mini-c, by Sam Nipps (c) 2015 //
 // MIT license                   //
 // AlexN-114                2025 //
@@ -35,15 +35,17 @@ char * buffer;
 int buflength;
 int token;
 int flag;
-enum {getadr=1, getvalue=2};
-enum {_bool=0x0001, _char=0x0002, _short=0x0004, _int=0x0008, _long=0x0010, _struct=0x0100, _type=0x0200, _unsigned=0x00800, _ptr=0x01000};
+enum {getadr = 1, getvalue = 2};
+enum {_bool = 0x0001, _char = 0x0002, _short = 0x0004, _int = 0x0008, _long = 0x0010, _struct = 0x0100, _type = 0x0200, _unsigned = 0x00800, _ptr = 0x01000};
 
 int token_other = 0;
 int token_ident = 1;
-int token_int = 2;
-int token_char = 3;
-int token_str = 4;
-int token_ptr = 5;
+int token_char = 2;
+int token_short = 3;
+int token_int = 4;
+int token_long = 5;
+int token_str = 6;
+int token_ptr = 7;
 
 // Prototypes
 void error(char * format);
@@ -54,6 +56,7 @@ void line();
 void decl(int kind);
 int do_preprocess();
 int sym_lookup(char ** table, int table_size, char * look);
+void assembler();
 
 void println()
 {
@@ -196,8 +199,8 @@ void next()
         {
             eat_char();
             while ((((curch >= '0') && (curch <= '9')) ||
-                    ((curch >= 'A') && (curch <= 'F')) ||
-                    ((curch >= 'a') && (curch <= 'f'))) && !feof(input))
+            ((curch >= 'A') && (curch <= 'F')) ||
+            ((curch >= 'a') && (curch <= 'f'))) && !feof(input))
                 eat_char();
         }
         else
@@ -230,7 +233,7 @@ void next()
 
         eat_char();
 
-    //Operators which form a new operator when duplicated e.g. '++'
+        //Operators which form a new operator when duplicated e.g. '++'
     }
     else if (curch == '+' || curch == '-' || curch == '=' || curch == '|' || curch == '&')
     {
@@ -239,7 +242,7 @@ void next()
         if (curch == buffer[0])
             eat_char();
 
-    //Operators which may be followed by a '='
+            //Operators which may be followed by a '='
     }
     else if (curch == '!')
     {
@@ -261,7 +264,7 @@ void next()
     {
         eat_char();
 
-       if ((curch == '=') || (curch == '<'))
+        if ((curch == '=') || (curch == '<'))
             eat_char();
 
     }
@@ -310,7 +313,7 @@ char * rgst;
 
 int *used_type;
 int *used_dref;
-int  used_idx = 0;
+int used_idx = 0;
 
 void error(char * format)
 {
@@ -363,7 +366,7 @@ bool try_match(char * look)
 //==== Symbol table ====
 
 char ** globals;
-int * globals_typ;
+int * globals_type;
 int * globals_size;
 int global_no;
 bool * is_fn;
@@ -374,7 +377,7 @@ char ** locals;
 int local_no;
 int param_no;
 int * offsets;
-int * locals_typ;
+int * locals_type;
 int * locals_size;
 int param_flag = 0;
 
@@ -386,7 +389,7 @@ int enum_count;
 void sym_init(int max)
 {
     globals = malloc(ptr_size * max);
-    globals_typ = malloc(ptr_size * max);
+    globals_type = malloc(ptr_size * max);
     globals_size = malloc(ptr_size * max);
     global_no = 0;
     is_fn = calloc(max, ptr_size);
@@ -394,7 +397,7 @@ void sym_init(int max)
     use_fn = 0;
 
     locals = malloc(ptr_size * max);
-    locals_typ = malloc(ptr_size * max);
+    locals_type = malloc(ptr_size * max);
     locals_size = malloc(ptr_size * max);
     local_no = 0;
     param_no = 0;
@@ -414,13 +417,13 @@ void table_end(char ** table, int table_size)
     int * types;
 
     if (table == globals)
-        types = globals_typ;
+        types = globals_type;
     else
-        types = locals_typ;
+        types = locals_type;
 
     while (i < table_size)
     {
-        //printf("%5x\t%s\n",types[i], table[i]);
+        // printf("%4x\t%s\n",types[i], table[i]);
         free(table[i++]);
     }
 }
@@ -429,13 +432,13 @@ void sym_end()
 {
     table_end(globals, global_no);
     free(globals);
-    free(globals_typ);
+    free(globals_type);
     free(globals_size);
     free(is_fn);
 
     table_end(locals, local_no);
     free(locals);
-    free(locals_typ);
+    free(locals_type);
     free(locals_size);
     free(offsets);
 }
@@ -444,12 +447,12 @@ void new_global(char * ident)
 {
     char * locBuf = malloc(100);
     int local = sym_lookup(globals, global_no, ident);
-    sprintf(locBuf, "global symbol '%s' aleady declared\n", ident);
+    sprintf(locBuf, "global symbol '%s' already declared\n", ident);
     if (local >= 0)
         require(is_fn[local], locBuf);
     free(locBuf);
 
-    globals_typ[global_no] = curtype;
+    globals_type[global_no] = curtype;
     globals_size[global_no] = cursize;
     globals[global_no++] = ident;
 }
@@ -470,7 +473,7 @@ int new_local(char * ident)
 
     int var_index = local_no - param_no;
 
-    locals_typ[local_no] = curtype;
+    locals_type[local_no] = curtype;
     locals_size[local_no] = cursize;
     locals[local_no] = ident;
     //The first local variable is directly below the base pointer
@@ -559,6 +562,12 @@ void factor()
         next();
 
     }
+    else if (see("sizeof"))
+    {
+        fprintf(output, "\tmov eax, %d\n", size_of());
+        next();
+
+    }
     else if (token == token_ident)
     {
         int global = sym_lookup(globals, global_no, buffer);
@@ -570,12 +579,12 @@ void factor()
         if (local >= 0)
         {
             cursize = locals_size[local];
-            curtype = locals_typ[local];
+            curtype = locals_type[local];
         }
         else if (global >= 0)
         {
             cursize = globals_size[global];
-            curtype = globals_typ[global];
+            curtype = globals_type[global];
         }
         else
         {
@@ -601,22 +610,22 @@ void factor()
             if (flag & getadr)
             {
                 fprintf(output, "\tmov eax, ebp\n"
-                                "\tadd eax, %+d\n", offsets[local]);
+                "\tadd eax, %+d\n", offsets[local]);
             }
             else if (flag & getvalue)
             {
                 if (lvalue)
                 {
                     fprintf(output, "\tmov ebx, ebp\n"
-                                    "\tadd ebx, %+d\n"
-                                    "\tmov eax, [ebx]\n", offsets[local]);
+                    "\tadd ebx, %+d\n"
+                    "\tmov eax, [ebx]\n", offsets[local]);
                 }
                 else
                 {
                     fprintf(output, "\tmov ebx, ebp\n"
-                                    "\tadd ebx, %+d\n"
-                                    "\tmov ebx, [ebx]\n"
-                                    "\tmov eax, [ebx]\n", offsets[local]);
+                    "\tadd ebx, %+d\n"
+                    "\tmov ebx, [ebx]\n"
+                    "\tmov eax, [ebx]\n", offsets[local]);
                 }
                 used_dref[used_idx] = (used_dref[used_idx] << 1) | _ptr;
             }
@@ -639,13 +648,13 @@ void factor()
                     if (lvalue)
                     {
                         fprintf(output, "\tlea ebx, [_%s]\n"
-                                        "\tmov eax, [ebx]\n", globals[global]);
+                        "\tmov eax, [ebx]\n", globals[global]);
                     }
                     else
                     {
                         fprintf(output, "\tlea ebx, [_%s]\n"
-                                        "\tmov ebx, [ebx]\n"
-                                        "\tmov eax, [ebx]\n", globals[global]);
+                        "\tmov ebx, [ebx]\n"
+                        "\tmov eax, [ebx]\n", globals[global]);
 
                     }
                     used_dref[used_idx] = (used_dref[used_idx] << 1) | _ptr;
@@ -695,7 +704,7 @@ void factor()
     }
     else
         error("expected an expression, found '%s'\n");
-    
+
 }
 
 void object()
@@ -748,9 +757,11 @@ void object()
         else if (try_match("["))
         {
             int _cursize = cursize;
+            int _curtype = curtype;
             fputs("\tpush eax\n", output);
 
             used_dref[used_idx] = (used_dref[used_idx] << 1) | _ptr;
+            // fprintf(output,"# Pointer: %04x %04x %d\n", _curtype, ~used_dref[used_idx], used_idx); 
 
             expr(0);
             match("]");
@@ -758,8 +769,14 @@ void object()
             if (see("=") || see("++") || see("--"))
                 lvalue = true;
 
+                // fprintf(output,"# Pointer: %04x %04x %d\n", _curtype, ~used_dref[used_idx-1], used_idx); 
+
+            int x = _curtype & ~used_dref[used_idx - 1] & 0xF000;
+
+            _cursize = (x != 0)? ptr_size : _cursize;
+
             fprintf(output, "\tpop ebx\n"
-                            "\t%s eax, [eax*%d+ebx] # %s\n", lvalue ? "lea" : "mov", _cursize, bjct, rgst);
+            "\t%s eax, [eax*%d+ebx] # %s\n", lvalue ? "lea" : "mov", _cursize, bjct, rgst);
 
         }
         else
@@ -777,8 +794,8 @@ void unary()
         unary();
 
         fputs("\tcmp eax, 0\n"
-              "\tmov eax, 0\n"
-              "\tsete al\n", output);
+        "\tmov eax, 0\n"
+        "\tsete al\n", output);
 
     }
     else if (try_match("-"))
@@ -801,6 +818,7 @@ void unary()
     }
     else if (try_match("*"))
     {
+        used_dref[used_idx] = (used_dref[used_idx] << 1) | _ptr;
         flag = flag | getvalue;
         unary();
         flag = flag & ~getvalue;
@@ -843,15 +861,18 @@ void expr(int level)
     : level == 3 ? see("==") || see("!=") || see("<") || see(">") || see("<=") || see(">=")
     : false)
     {
-        if (see("/")) div = 1;
-        if (see("%")) div = 2;
-        if (see("<<") || see(">>")) div = 3;
+        if (see("/"))
+            div = 1;
+        if (see("%"))
+            div = 2;
+        if (see("<<") || see(">>"))
+            div = 3;
 
         fputs("\tpush eax\n", output);
 
         char * instr = see("+") ? "add" : see("-") ? "sub" : see("|") ? "or" : see("&") ? "and" : see("*") ? "imul" : see("^") ? "xor"
-                     : see("/") ? "idiv" : see("%") ? "idiv" : see("<<") ? "sal" : see(">>") ? "sar"
-                     : see("==") ? "e" : see("!=") ? "ne" : see("<") ? "l" : see(">") ? "g" : see("<=") ? "le" : "ge";
+        : see("/") ? "idiv" : see("%") ? "idiv" : see("<<") ? "sal" : see(">>") ? "sar"
+        : see("==") ? "e" : see("!=") ? "ne" : see("<") ? "l" : see(">") ? "g" : see("<=") ? "le" : "ge";
 
         next();
         expr(level + 1);
@@ -861,44 +882,44 @@ void expr(int level)
             if (div == 0)
             {
                 fprintf(output, "\tmov ebx, eax\n"
-                                "\tpop eax\n"
-                                "\t%s eax, ebx\n", instr);
+                "\tpop eax\n"
+                "\t%s eax, ebx\n", instr);
             }
             else if (div == 1)
             {
                 fprintf(output, "\tmov ebx, eax\n"
-                                "\tpop eax\n"
-                                "\txor edx, edx\n"
-                                "\t%s ebx\n", instr);
+                "\tpop eax\n"
+                "\txor edx, edx\n"
+                "\t%s ebx\n", instr);
             }
             else
             {
                 fprintf(output, "\tmov ebx, eax\n"
-                                "\tpop eax\n"
-                                "\txor edx, edx\n"
-                                "\t%s ebx\n"
-                                "\tmov eax, edx\n", instr);
+                "\tpop eax\n"
+                "\txor edx, edx\n"
+                "\t%s ebx\n"
+                "\tmov eax, edx\n", instr);
             }
         }
         else if (level == 4)
             if (div == 3)
             {
                 fprintf(output, "\tmov ecx, eax\n"
-                                "\tpop eax\n"
-                                "\t%s eax, cl\n", instr);
+                "\tpop eax\n"
+                "\t%s eax, cl\n", instr);
             }
             else
             {
                 fprintf(output, "\tmov ebx, eax\n"
-                                "\tpop eax\n"
-                                "\t%s eax, ebx\n", instr);
+                "\tpop eax\n"
+                "\t%s eax, ebx\n", instr);
             }
         else
         {
             fprintf(output, "\tpop ebx\n"
-                            "\tcmp ebx, eax\n"
-                            "\tmov eax, 0\n"
-                            "\tset%s al\n", instr);
+            "\tcmp ebx, eax\n"
+            "\tmov eax, 0\n"
+            "\tset%s al\n", instr);
         }
     }
 
@@ -924,8 +945,8 @@ void expr(int level)
 
         bjct = "dword";
         rgst = "eax";
-        
-        if (lvalue && !param_flag && (token!=token_str) &&(used_type[used_idx]))
+
+        if (lvalue && !param_flag && (token != token_str) && (used_type[used_idx]))
         {
             int x1 = ~used_dref[used_idx];
             int x2 = used_type[used_idx];
@@ -934,17 +955,17 @@ void expr(int level)
             // if ((~used_dref[used_idx] & used_type[used_idx]) & 0xf000 == 0)
             {
                 bjct = (cursize == 1)? "byte" : (cursize == 2)? "word" : "dword";
-                rgst = (cursize == 1)? "al"   : (cursize == 2)? "ax"   : "eax";
+                rgst = (cursize == 1)? "al" : (cursize == 2)? "ax" : "eax";
             }
-           used_idx--;
+            used_idx--;
         }
 
         needs_lvalue("assignment requires a modifiable object\n");
         expr(level + 1);
 
         fprintf(output, "\tpop ebx\n"
-                        //"\tmov %s ptr [ebx], %s # %d %d\n", bjct, rgst, cursize, curtype);
-                        "\tmov %s ptr [ebx], %s # %d %d\n", bjct, rgst, cursize, curtype);
+        //"\tmov %s ptr [ebx], %s # %d %04x\n", bjct, rgst, cursize, curtype);
+        "\tmov %s ptr [ebx], %s # %d %04x\n", bjct, rgst, cursize, curtype);
     }
 }
 
@@ -975,12 +996,12 @@ void for_loop()
 
     // for body condition
     fprintf(output, "# for loop entry\n"
-                    "_%08d:\n", loop_to);
+    "_%08d:\n", loop_to);
 
-    if(!see(";"))
+    if (!see(";"))
         expr(0);
     else
-        fprintf(output,"\tmov eax, 1\n");
+        fprintf(output, "\tmov eax, 1\n");
 
     fprintf(output, "\tcmp eax, 0\n"
     "\tjne _%08d\n"
@@ -1065,15 +1086,14 @@ void switch_label()
     match("(");
     expr(0);
     fprintf(output, "#switch expr\n"
-                    "\tmov ebx, eax\n");
+    "\tmov ebx, eax\n");
     match(")");
     match("{");
 
     do
     {
         case_default();
-    }
-    while ((see("case") || see("default")) && !feof(input));
+    } while ((see("case") || see("default")) && !feof(input));
 
     match("}");
 
@@ -1093,13 +1113,30 @@ void assembler()
     match("asm");
     match("(");
 
-    buffer[strlen(buffer)-1] = 0;
-    fprintf(output, buffer+1);
+    buffer[strlen(buffer) - 1] = 0;
+    fprintf(output, buffer + 1);
     fprintf(output, "\n");
     next();
 
     match(")");
     match(";");
+}
+
+int size_of()
+{
+    int size;
+    match("sizeof");
+    match("(");
+
+    //next();
+
+    size = see("char")? 1 : see("short")? 2 : see("int")? 4 : see("long")? 8 : 4;
+
+    while (!see(")"))
+        next();
+        //match(")");
+
+    return size;
 }
 
 void branch(bool isexpr)
@@ -1108,7 +1145,7 @@ void branch(bool isexpr)
     int join = new_label();
 
     fprintf(output, "\tcmp eax, 0\n"
-                    "\tje _%08d\n", false_branch);
+    "\tje _%08d\n", false_branch);
 
     isexpr ? expr(1) : line();
 
@@ -1213,10 +1250,13 @@ void line()
     else if (see("switch"))
         switch_label();
 
+    else if (see("sizeof"))
+        size_of();
+
     else if (see("asm"))
         assembler();
 
-    else if (see("int") || see("char") || see("bool"))
+    else if (see("int") || see("short") || see("char") || see ("long"))
     {
         decl(decl_local);
     }
@@ -1304,6 +1344,8 @@ void decl(int kind)
     bool fn = false;
     bool fn_impl = false;
     int local;
+    int funtype = -1;
+    int funsize = -1;
 
     if (see("enum"))
     {
@@ -1312,26 +1354,34 @@ void decl(int kind)
     }
 
     curtype = see("char") ? _char : see("int") ? _int : see("short") ? _short : see("long") ? _long : see("unsigned") ? _unsigned : see("bool") ? _bool : 0;
-    cursize = see("char") ? 1 : see("int") ? 4 : see("short") ? 2 : see("long") ? 8 : see("unsigned") ? 4 : see("bool") ? 4 : 4;
+    cursize = see("char") ? 1 : see("short") ? 2 : see("int") ? 4 : see("long") ? 8 : see("unsigned") ? 4 : see("bool") ? 4 : 4;
+    token = see("char") ? token_char : see("short") ? token_short : see("int") ? token_int : see("long") ? token_long : token_other;
 
     next();
 
     int __ptr = 0;
     while (try_match("*"))
         __ptr = (__ptr << 1) + _ptr;
-        
+
     curtype = curtype | __ptr;
 
     char * ident = strdup(buffer);
+
+    // printf("decl(%d): %08X %s\n\n",__LINE__,curtype,ident); // Debug - Delete
+
     next();
 
     //Functions
     if (try_match("("))
     {
         if (kind == decl_module)
+        {
+            funtype = curtype;
+            funsize = cursize;
             new_scope();
+        }
 
-            //Params
+        //Params
         if (waiting_for(")"))
             do
             {
@@ -1339,6 +1389,9 @@ void decl(int kind)
             } while (try_match(","));
 
         match(")");
+
+        curtype = funtype;
+        cursize = funsize;
 
         new_fn(ident);
         fn = true;
@@ -1373,12 +1426,16 @@ void decl(int kind)
 
     if (kind == decl_module)
     {
-        if (!fn) fputs(".section .data\n", output);
+        if (!fn)
+            fputs(".section .data\n", output);
 
         if (try_match("="))
         {
             if (token == token_int)
-                fprintf(output, "_%s: .long %s\n", ident, buffer);
+                if (curtype == _long)
+                    fprintf(output, "_%s: .quad %s\n", ident, buffer);
+                else
+                    fprintf(output, "_%s: .long %s\n", ident, buffer);
 
             else
                 error("expected a constant expression, found '%s'\n");
@@ -1388,9 +1445,13 @@ void decl(int kind)
             //Static data defaults to zero if no initializer
         }
         else if (!fn)
-            fprintf(output, "_%s: .long 0\n", ident);
+            if (curtype == _long)
+                fprintf(output, "_%s: .quad 0\n", ident);
+            else
+                fprintf(output, "_%s: .long 0\n", ident);
 
-        if (!fn) fputs(".section .text\n", output);
+        if (!fn)
+            fputs(".section .text\n", output);
 
     }
     else if (try_match("="))
@@ -1497,6 +1558,7 @@ int do_preprocess()
 
 int main(int argc, char ** argv)
 {
+    char *version = "mini-c v0.13.2";
     char *fn_out;
     if (argc != 2)
     {
@@ -1508,30 +1570,31 @@ int main(int argc, char ** argv)
     outputname[strlen(outputname) - 1] = 's';
 
     output = fopen(outputname, "w");
+    printf("%s\n%s  %s\n\n", version, __DATE__, __TIME__);
 
-    lex_init(argv[1], 1024);
+    lex_init(argv[1], 10240);
 
-    sym_init(1024);
+    sym_init(10240);
 
-/*  //No arrays? Fine! A 0xFFFFFF terminated string of null terminated strings will do.
+    /*  //No arrays? Fine! A 0xFFFFFF terminated string of null terminated strings will do.
     //A negative-terminated null-terminated strings string, if you will
     char * std_fns = "malloc\0calloc\0free\0atoi\0fopen\0fclose\0fgetc\0ungetc\0feof\0fputs\0fprintf\0puts\0printf\0"
     "isalpha\0isdigit\0isalnum\0strlen\0strcmp\0strchr\0strcpy\0strdup\0\xFF\xFF\xFF\xFF";
-
+    
     //Remember that mini-c is typeless, so this is both a byte read and a 4 byte read.
     //(char) 0xFF == -1, (int) 0xFFFFFF == -1
     while (std_fns[0] != -1)
     {
-        new_fn(std_fns);
-        std_fns = std_fns + strlen(std_fns) + 1;
+    new_fn(std_fns);
+    std_fns = std_fns + strlen(std_fns) + 1;
     }
-*/
+     */
     bjct = "dword";
     rgst = "eax";
 
-    fprintf(output, "# mini-c v0.12.0\n"
-    "# %s\n"
-    ".intel_syntax noprefix\n\n", inputname);
+    fprintf(output, "# %s\n"
+    "# file: %s\n"
+    ".intel_syntax noprefix\n\n", version, inputname);
 
     program();
 
