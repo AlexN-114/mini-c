@@ -444,7 +444,7 @@ void new_global(char * ident)
 {
     char * locBuf = malloc(100);
     int local = sym_lookup(globals, global_no, ident);
-    sprintf(locBuf, "global symbol '%s' aleady declared\n", ident);
+    sprintf(locBuf, "global symbol '%s' already declared\n", ident);
     if (local >= 0)
         require(is_fn[local], locBuf);
     free(locBuf);
@@ -464,7 +464,7 @@ int new_local(char * ident)
 {
     char * locBuf = malloc(100);
     int local = sym_lookup(locals, local_no, ident);
-    sprintf(locBuf, "local symbol '%s' aleady declared\n", ident);
+    sprintf(locBuf, "local symbol '%s' already declared\n", ident);
     require(local < 0, locBuf);
     free(locBuf);
 
@@ -573,6 +573,7 @@ void factor()
             curtype = locals_typ[local];
         }
         else if (global >= 0)
+
         {
             cursize = globals_size[global];
             curtype = globals_typ[global];
@@ -605,8 +606,19 @@ void factor()
             }
             else if (flag & getvalue)
             {
-                fprintf(output, "\tmov ebx, [ebp%+d]\n"
-                                "\tmov eax, [ebx]\n", offsets[local]);
+                if (lvalue)
+                {
+                    fprintf(output, "\tmov ebx, ebp\n"
+                                    "\tadd ebx, %+d\n"
+                                    "\tmov eax, [ebx]\n", offsets[local]);
+                }
+                else
+                {
+                    fprintf(output, "\tmov ebx, ebp\n"
+                                    "\tadd ebx, %+d\n"
+                                    "\tmov ebx, [ebx]\n"
+                                    "\tmov eax, [ebx]\n", offsets[local]);
+                }
                 used_dref[used_idx] = (used_dref[used_idx] << 1) | _ptr;
             }
             else
@@ -625,8 +637,18 @@ void factor()
                 }
                 else if (flag & getvalue)
                 {
-                    fprintf(output, "\tlea ebx, [_%s]\n"
-                                    "\tmov eax, [ebx]\n", globals[global]);
+                    if (lvalue)
+                    {
+                        fprintf(output, "\tlea ebx, [_%s]\n"
+                                        "\tmov eax, [ebx]\n", globals[global]);
+                    }
+                    else
+                    {
+                        fprintf(output, "\tlea ebx, [_%s]\n"
+                                        "\tmov ebx, [ebx]\n"
+                                        "\tmov eax, [ebx]\n", globals[global]);
+
+                    }
                     used_dref[used_idx] = (used_dref[used_idx] << 1) | _ptr;
                 }
                 else
@@ -937,7 +959,7 @@ void for_loop()
     int body_to = new_label();
     int incl_to = new_label();
 
-    loop_to_inner = loop_to;
+    loop_to_inner = incl_to;
     break_to_inner = break_to;
 
     // for body intro
@@ -952,7 +974,7 @@ void for_loop()
     match(";");
 
     // for body condition
-    fprintf(output, //"# for loop entry\n"
+    fprintf(output, "# for loop entry\n"
                     "_%08d:\n", loop_to);
 
     if(!see(";"))
@@ -1339,7 +1361,7 @@ void decl(int kind)
         if (try_match("="))
         {
             if (token == token_int)
-                fprintf(output, "_%s: .quad %s\n", ident, buffer);
+                fprintf(output, "_%s: .long %s\n", ident, buffer);
 
             else
                 error("expected a constant expression, found '%s'\n");
@@ -1349,7 +1371,7 @@ void decl(int kind)
             //Static data defaults to zero if no initializer
         }
         else if (!fn)
-            fprintf(output, "_%s: .quad 0\n", ident);
+            fprintf(output, "_%s: .long 0\n", ident);
 
         if (!fn) fputs(".section .text\n", output);
 
@@ -1490,7 +1512,7 @@ int main(int argc, char ** argv)
     bjct = "dword";
     rgst = "eax";
 
-    fprintf(output, "# mini-c v0.10.9\n"
+    fprintf(output, "# mini-c v0.11.0\n"
     "# %s\n"
     ".intel_syntax noprefix\n\n", inputname);
 
