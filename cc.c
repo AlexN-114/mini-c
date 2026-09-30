@@ -1,6 +1,7 @@
 //-------------------------------//
 // mini-c, by Sam Nipps (c) 2015 //
 // MIT license                   //
+// AlexN-114                2025 //
 //-------------------------------//
 
 #include <stdlib.h>
@@ -33,8 +34,8 @@ char tc = ':';
 char * buffer;
 int buflength;
 int token;
-int flag_getadr;
-int flag_getvalue;
+int flag;
+enum {getadr=1, getvalue=2};
 
 int token_other = 0;
 int token_ident = 1;
@@ -73,12 +74,10 @@ void read_line()
                 curln = old_line;
                 old_input = 0;
                 line_pointer = line_cache;
-                //                (line_pointer+0)[0] = ';';
                 (line_pointer + 0)[0] = '\n';
                 (line_pointer + 1)[0] = 0;
                 printf("\n");
                 tc = ':';
-//                next();
                 return;
             }
             break;
@@ -523,10 +522,10 @@ void factor()
         }
         else if (local >= 0)
         {
-            if (flag_getadr)
+            if (flag & getadr)
                 fprintf(output, "\tmov eax, ebp\n"
                                 "\tadd eax, %+d\n", offsets[local]);
-            else if (flag_getvalue)
+            else if (flag & getvalue)
                 fprintf(output, "\tmov ebx, [ebp%+d]\n"
                                 "\tmov eax, [ebx]\n", offsets[local]);
             else
@@ -537,9 +536,9 @@ void factor()
             if (!is_fn[global])
             {
                 // fprintf(output, "\t%s eax, [_%s]\n", is_fn[global] || lvalue ? "lea" : "mov", globals[global]);
-                if (flag_getadr)
+                if (flag & getadr)
                     fprintf(output, "\tlea eax, _%s\n", globals[global]);
-                if (flag_getvalue)
+                if (flag & getvalue)
                     fprintf(output, "\tlea ebx, [_%s]\n"
                                     "\tmov eax, [ebx]", globals[global]);
                 else
@@ -680,15 +679,15 @@ void unary()
     }
     else if (try_match("&"))
     {
-        flag_getadr = 1;
+        flag = flag | getadr;
         unary();
-        flag_getadr = 0;
+        flag = flag & ~getadr;
     }
     else if (try_match("*"))
     {
-        flag_getvalue = 1;
+        flag = flag | getvalue;
         unary();
-        flag_getvalue = 0;
+        flag = flag & ~getvalue;
     }
     else
     {
@@ -1357,7 +1356,7 @@ int main(int argc, char ** argv)
 
     sym_init(256);
 
-/*    //No arrays? Fine! A 0xFFFFFF terminated string of null terminated strings will do.
+/*  //No arrays? Fine! A 0xFFFFFF terminated string of null terminated strings will do.
     //A negative-terminated null-terminated strings string, if you will
     char * std_fns = "malloc\0calloc\0free\0atoi\0fopen\0fclose\0fgetc\0ungetc\0feof\0fputs\0fprintf\0puts\0printf\0"
     "isalpha\0isdigit\0isalnum\0strlen\0strcmp\0strchr\0strcpy\0strdup\0\xFF\xFF\xFF\xFF";
@@ -1370,7 +1369,7 @@ int main(int argc, char ** argv)
         std_fns = std_fns + strlen(std_fns) + 1;
     }
 */
-    fprintf(output, "# mini-c v0.10.6\n"
+    fprintf(output, "# mini-c v0.10.7\n"
     "# %s\n"
     ".intel_syntax noprefix\n\n", inputname);
 
